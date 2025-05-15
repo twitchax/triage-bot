@@ -1,8 +1,8 @@
 //! Library root for `triage-bot`.
 
 pub mod base;
-pub mod service;
 pub mod prelude;
+pub mod service;
 
 use base::{config::Config, types::Void};
 use rustls::crypto;
@@ -18,7 +18,7 @@ pub async fn start(config: Config) -> Void {
 
     // Initialize the Slack client.
     let slack = SlackClient::new(&config).await?;
-    
+
     // Start the Slack client connection via web sockets.
     slack.start().await
 }

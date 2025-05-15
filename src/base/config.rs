@@ -4,7 +4,6 @@ use serde::Deserialize;
 
 use super::types::Res;
 
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// OpenAI API key (`OPENAI_API_KEY`)
@@ -18,11 +17,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(
-        explicit_path: Option<&std::path::Path>,
-    ) -> Res<Self> {
-        let mut cfg = config::Config::builder()
-            .add_source(config::Environment::default().prefix("TRIAGE_BOT"));
+    pub fn load(explicit_path: Option<&std::path::Path>) -> Res<Self> {
+        let mut cfg = config::Config::builder().add_source(config::Environment::default().prefix("TRIAGE_BOT"));
 
         if let Some(p) = explicit_path {
             cfg = cfg.add_source(config::File::from(p.to_path_buf()));

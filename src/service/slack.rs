@@ -1,6 +1,5 @@
 //! Thin wrapper around Slack-Morphism client.
 
-
 use crate::{base::config::Config, prelude::*};
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::{Connect, HttpConnector};
@@ -27,9 +26,7 @@ impl SlackClient {
             .with_interaction_events(handle_interaction_event)
             .with_push_events(handle_push_event);
 
-        let listener_environment = Arc::new(
-            SlackClientEventsListenerEnvironment::new(client.clone())
-        );
+        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()));
 
         let socket_mode_listener = Arc::new(SlackClientSocketModeListener::new(
             &SlackClientSocketModeConfig::new(),
@@ -41,12 +38,12 @@ impl SlackClient {
     }
 
     pub async fn start(&self) -> Void {
-        // Register an app token to listen for events, 
+        // Register an app token to listen for events,
         self.socket_mode_listener.listen_for(&self.token).await?;
 
-        // Start WS connections calling Slack API to get WS url for the token, 
+        // Start WS connections calling Slack API to get WS url for the token,
         // and wait for Ctrl-C to shutdown.
-        // There are also `.start()`/`.shutdown()` available to manage manually 
+        // There are also `.start()`/`.shutdown()` available to manage manually
         self.socket_mode_listener.serve().await;
 
         Ok(())
@@ -60,29 +57,19 @@ async fn handle_command_event(
     _states: SlackClientEventsUserState,
 ) -> Result<SlackCommandEventResponse, Box<dyn std::error::Error + Send + Sync>> {
     info!("[COMMAND] {:#?}", event);
-    Ok(SlackCommandEventResponse::new(
-        SlackMessageContent::new().with_text("Working on it".into()),
-    ))
+    Ok(SlackCommandEventResponse::new(SlackMessageContent::new().with_text("Working on it".into())))
 }
 
 /// Handles interaction events from Slack.
-async fn handle_interaction_event(
-    event: SlackInteractionEvent,
-    _client: Arc<SlackHyperClient>,
-    _states: SlackClientEventsUserState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_interaction_event(event: SlackInteractionEvent, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("[INTERACTION] {:#?}", event);
-    
+
     Ok(())
 }
 
 /// Handles push events from Slack.
-async fn handle_push_event(
-    event: SlackPushEventCallback,
-    _client: Arc<SlackHyperClient>,
-    _states: SlackClientEventsUserState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_push_event(event: SlackPushEventCallback, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("[PUSH] {:#?}", event);
-    
+
     Ok(())
 }
