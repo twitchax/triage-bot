@@ -1,8 +1,8 @@
 //! Library root for `triage-bot`.
 
 pub mod base;
-pub mod prelude;
 pub mod service;
+pub mod interaction;
 
 use base::{config::Config, types::Void};
 use rustls::crypto;

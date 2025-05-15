@@ -1,9 +1,10 @@
 //! Thin wrapper around Slack-Morphism client.
 
-use crate::{base::config::Config, prelude::*};
+use crate::{base::{config::Config, types::{Res, Void}}, interaction};
 use hyper_rustls::HttpsConnector;
-use hyper_util::client::legacy::connect::{Connect, HttpConnector};
+use hyper_util::client::legacy::connect::{HttpConnector};
 use slack_morphism::prelude::*;
+use tracing::{instrument, warn};
 
 use std::sync::Arc;
 
@@ -50,26 +51,45 @@ impl SlackClient {
     }
 }
 
+// Socket mode listener callbacks.
+
 /// Handles command events from Slack.
 async fn handle_command_event(
     event: SlackCommandEvent,
     _client: Arc<SlackHyperClient>,
     _states: SlackClientEventsUserState,
 ) -> Result<SlackCommandEventResponse, Box<dyn std::error::Error + Send + Sync>> {
-    info!("[COMMAND] {:#?}", event);
-    Ok(SlackCommandEventResponse::new(SlackMessageContent::new().with_text("Working on it".into())))
+    warn!("[COMMAND] {:#?}", event);
+    Ok(SlackCommandEventResponse::new(SlackMessageContent::new().with_text("No app commands are currently supported.".into())))
 }
 
 /// Handles interaction events from Slack.
 async fn handle_interaction_event(event: SlackInteractionEvent, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("[INTERACTION] {:#?}", event);
-
+    warn!("[INTERACTION] {:#?}", event);
     Ok(())
 }
 
 /// Handles push events from Slack.
-async fn handle_push_event(event: SlackPushEventCallback, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("[PUSH] {:#?}", event);
+#[instrument(skip(_states))]
+async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let event = event_callback.event;
+
+    match event {
+        SlackEventCallbackBody::Message(slack_message_event) => {
+            interaction::message::handle_message(slack_message_event).await?;
+        },
+        SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
+            interaction::app_mention::handle_app_mention(slack_app_mention_event).await?;
+        },
+        SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),
+        SlackEventCallbackBody::ReactionAdded(slack_reaction_added_event) => todo!(),
+        SlackEventCallbackBody::ReactionRemoved(slack_reaction_removed_event) => todo!(),
+        SlackEventCallbackBody::StarAdded(slack_star_added_event) => todo!(),
+        SlackEventCallbackBody::StarRemoved(slack_star_removed_event) => todo!(),
+        _ => {
+            warn!("[PUSH] Received unhandled push event.")
+        }
+    }
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 //! Binary entry point for `triage-bot`.
 
 use clap::Parser;
-use triage_bot::prelude::*;
+use triage_bot::base::{config::Config, types::Void};
 
 /// Triage-bot – a Slack support channel triage helper.
 ///
