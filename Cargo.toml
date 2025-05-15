@@ -7,10 +7,6 @@ description = "A Slack triage bot using LLMs."
 license = "MIT"
 repository = "https://github.com/twitchax/triage-bot"
 
-[profile.release]
-codegen-units = 1
-lto = true
-
 [lib]
 name = "triage_bot"
 path = "src/lib.rs"
@@ -26,7 +22,9 @@ tracing-subscriber = { version = "0.3" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 slack-morphism = { version = "2", features = ["hyper", "axum"] }
 hyper = { version = "1", features = ["client"] }
-hyper-util ={ version = "0.1" }
+hyper-util = { version = "0.1" }
+hyper-rustls = { version = "0.27" }
+rustls = { version = "0.23" }
 async-openai = "0.28"
 config = { version = "0.15", features = ["toml"] }
 serde = { version = "1", features = ["derive"] }

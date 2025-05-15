@@ -1,13 +1,16 @@
 //! Load configuration via `config` crate with env-override support.
 
 use serde::Deserialize;
-use crate::base::Res;
+
+use super::types::Res;
 
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// OpenAI API key (`OPENAI_API_KEY`)
     pub openai_api_key: String,
+    /// Slack app token (`SLACK_APP_TOKEN`)
+    pub slack_app_token: String,
     /// Slack bot token (`SLACK_BOT_TOKEN`)
     pub slack_bot_token: String,
     /// Slack signing secret (`SLACK_SIGNING_SECRET`)
@@ -19,7 +22,7 @@ impl Config {
         explicit_path: Option<&std::path::Path>,
     ) -> Res<Self> {
         let mut cfg = config::Config::builder()
-            .add_source(config::Environment::default().separator("_"));
+            .add_source(config::Environment::default().prefix("TRIAGE_BOT"));
 
         if let Some(p) = explicit_path {
             cfg = cfg.add_source(config::File::from(p.to_path_buf()));

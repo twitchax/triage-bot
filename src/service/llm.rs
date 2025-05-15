@@ -1,7 +1,8 @@
 //! Thin wrapper around async-openai.
 
-use crate::config::Config;
 use async_openai::{config::OpenAIConfig, Client};
+
+use crate::base::config::Config;
 
 pub struct LlmClient {
     #[allow(dead_code)]

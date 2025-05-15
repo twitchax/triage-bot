@@ -1,8 +1,7 @@
 //! Binary entry point for `triage-bot`.
 
 use clap::Parser;
-use triage_bot::config::Config;
-use triage_bot::base::Void;
+use triage_bot::prelude::*;
 
 /// Triage-bot – a Slack support channel triage helper.
 ///
@@ -40,5 +39,5 @@ async fn main() -> Void {
 
     let config = Config::load(args.config.as_deref())?;
 
-    triage_bot::run(config).await
+    triage_bot::start(config).await
 }

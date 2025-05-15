@@ -1,19 +1,24 @@
 //! Library root for `triage-bot`.
 
 pub mod base;
-pub mod config;
-pub mod slack;
-pub mod llm;
+pub mod service;
 pub mod prelude;
 
-use crate::{config::Config, slack::SlackClient};
-use crate::base::Void;
+use base::{config::Config, types::Void};
+use rustls::crypto;
+use service::slack::SlackClient;
 use tracing::info;
 
 /// Public async entry for the binary crate.
-pub async fn run(config: Config) -> Void {
-    info!("starting triage-bot");
+pub async fn start(config: Config) -> Void {
+    info!("Starting triage-bot ...");
+
+    // Start the crypto provider.
+    crypto::ring::default_provider().install_default().unwrap();
+
+    // Initialize the Slack client.
     let slack = SlackClient::new(&config).await?;
-    // Start Slack listener / task loop (placeholder).
-    slack.run().await
+    
+    // Start the Slack client connection via web sockets.
+    slack.start().await
 }
