@@ -1,0 +1,40 @@
+[package]
+name = "triage-bot"
+version = "0.1.0"
+edition = "2024"
+authors = ["Aaron Roney <twitchax@gmail.com>"]
+description = "A Slack triage bot using LLMs."
+license = "MIT"
+repository = "https://github.com/twitchax/triage-bot"
+
+[profile.release]
+codegen-units = 1
+lto = true
+
+[lib]
+name = "triage_bot"
+path = "src/lib.rs"
+
+[[bin]]
+name = "triage-bot"
+path = "src/bin.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+slack-morphism = { version = "2", features = ["hyper", "axum"] }
+hyper = { version = "1", features = ["client"] }
+hyper-util ={ version = "0.1" }
+async-openai = "0.28"
+config = { version = "0.15", features = ["toml"] }
+serde = { version = "1", features = ["derive"] }
+serde_with = "3"
+anyhow = "1"
+surrealdb = { version = "2", features = ["kv-mem"] }
+futures = "0.3"
+# For future extensions (kept but unused for now)
+# bincode = { version = "1", optional = true }
+# ouroboros = { version = "0.17", optional = true }
+# quinn = { version = "0.11", optional = true }
