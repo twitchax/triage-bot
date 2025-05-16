@@ -17,15 +17,7 @@ pub enum LlmClassification {
 #[serde(tag = "type")]
 pub enum LlmResult {
     NoAction,
-    UpdateChannelDirective {
-        message: String,
-    },
-    UpdateContext {
-        message: String,
-    },
-    ReplyToThread {
-        thread_ts: String,
-        classification: LlmClassification,
-        message: String,
-    },
+    UpdateChannelDirective { message: String },
+    UpdateContext { message: String },
+    ReplyToThread { thread_ts: String, classification: LlmClassification, message: String },
 }

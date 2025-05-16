@@ -1,44 +1,74 @@
 //! Thin wrapper around Slack-Morphism client.
 
-use crate::{base::{config::Config, types::{Res, Void}}, interaction};
+use crate::{
+    base::{
+        config::Config,
+        types::{Res, Void},
+    },
+    interaction,
+};
 use hyper_rustls::HttpsConnector;
-use hyper_util::client::legacy::connect::{HttpConnector};
+use hyper_util::client::legacy::connect::HttpConnector;
 use slack_morphism::prelude::*;
 use tracing::{instrument, warn};
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
-use super::db::DbClient;
+use super::{db::DbClient, llm::LlmClient};
+
+type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
+type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
+
+struct UserState {
+    db: DbClient,
+    llm: LlmClient,
+}
 
 /// Slack client for the application.
-/// 
+///
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
 pub struct SlackClient {
-    app_token: Arc<SlackApiToken>,
-    bot_token: Arc<SlackApiToken>,
-    client: Arc<slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>>,
-    socket_mode_listener: Arc<SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>>,
+    inner: Arc<SlackClientInner>,
+}
+
+#[derive(Clone)]
+struct SlackClientInner {
+    app_token: SlackApiToken,
+    bot_token: SlackApiToken,
+    client: Arc<FullClient>,
+    socket_mode_listener: Arc<Listener>,
     db: DbClient,
+    llm: LlmClient,
+}
+
+impl Deref for SlackClient {
+    type Target = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.client
+    }
 }
 
 impl SlackClient {
-    pub async fn new(config: &Config, db: DbClient) -> Res<Self> {
-        let app_token = Arc::new(SlackApiToken::new(SlackApiTokenValue(config.slack_app_token.clone())));
-        let bot_token = Arc::new(SlackApiToken::new(SlackApiTokenValue(config.slack_bot_token.clone())));
+    pub async fn new(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
+        let app_token = SlackApiToken::new(SlackApiTokenValue(config.slack_app_token.clone()));
+        let bot_token = SlackApiToken::new(SlackApiTokenValue(config.slack_bot_token.clone()));
 
         let https_connector = HttpsConnector::<HttpConnector>::builder().with_native_roots()?.https_only().enable_all_versions().build();
         let connector = SlackClientHyperConnector::with_connector(https_connector);
         let client = Arc::new(slack_morphism::SlackClient::new(connector));
 
-        // Placeholder for starting the Slack client.
         let socket_mode_callbacks = SlackSocketModeListenerCallbacks::new()
             .with_command_events(handle_command_event)
             .with_interaction_events(handle_interaction_event)
             .with_push_events(handle_push_event);
 
-        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()));
+        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()).with_user_state(UserState {
+            db: db.clone(),
+            llm: llm.clone(),
+        }));
 
         let socket_mode_listener = Arc::new(SlackClientSocketModeListener::new(
             &SlackClientSocketModeConfig::new(),
@@ -46,17 +76,26 @@ impl SlackClient {
             socket_mode_callbacks,
         ));
 
-        Ok(Self { app_token, bot_token, client, socket_mode_listener, db })
+        Ok(Self {
+            inner: Arc::new(SlackClientInner {
+                app_token,
+                bot_token,
+                client,
+                socket_mode_listener,
+                db,
+                llm,
+            }),
+        })
     }
 
     pub async fn start(&self) -> Void {
         // Register an app token to listen for events,
-        self.socket_mode_listener.listen_for(&self.app_token).await?;
+        self.inner.socket_mode_listener.listen_for(&self.inner.app_token).await?;
 
         // Start WS connections calling Slack API to get WS url for the token,
         // and wait for Ctrl-C to shutdown.
         // There are also `.start()`/`.shutdown()` available to manage manually
-        self.socket_mode_listener.serve().await;
+        self.inner.socket_mode_listener.serve().await;
 
         Ok(())
     }
@@ -82,16 +121,18 @@ async fn handle_interaction_event(event: SlackInteractionEvent, _client: Arc<Sla
 
 /// Handles push events from Slack.
 #[instrument(skip_all)]
-async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<SlackHyperClient>, states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event = event_callback.event;
+    let states = states.read().await;
+    let user_state = states.get_user_state::<UserState>().ok_or(anyhow::anyhow!("Failed to get user state"))?;
 
     match event {
         SlackEventCallbackBody::Message(slack_message_event) => {
-            interaction::message::handle_message(slack_message_event).await?;
-        },
+            interaction::message::handle_message(slack_message_event, &user_state.db, &user_state.llm).await?;
+        }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
-            interaction::app_mention::handle_app_mention(slack_app_mention_event).await?;
-        },
+            interaction::app_mention::handle_app_mention(slack_app_mention_event, &user_state.db, &user_state.llm).await?;
+        }
         SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),
         SlackEventCallbackBody::ReactionAdded(slack_reaction_added_event) => todo!(),
         SlackEventCallbackBody::ReactionRemoved(slack_reaction_removed_event) => todo!(),

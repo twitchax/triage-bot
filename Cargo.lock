@@ -4862,6 +4862,7 @@ dependencies = [
  "hyper-util",
  "rustls",
  "serde",
+ "serde_json",
  "serde_with",
  "slack-morphism",
  "surrealdb",

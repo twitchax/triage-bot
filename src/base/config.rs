@@ -1,5 +1,7 @@
 //! Load configuration via `config` crate with env-override support.
 
+use std::{ops::Deref, sync::Arc};
+
 use serde::Deserialize;
 
 use super::types::Res;
@@ -9,18 +11,48 @@ fn default_openai_model() -> String {
     "gpt-4.1".to_string()
 }
 
+/// Default sampling temperature for OpenAI model
+fn default_openai_temperature() -> f32 {
+    0.7
+}
+
+/// Configuration for the triage-bot application.
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    /// OpenAI API key (`OPENAI_API_KEY`)
+    inner: Arc<ConfigInner>,
+}
+
+impl Deref for Config {
+    type Target = ConfigInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ConfigInner {
+    /// OpenAI API key (`OPENAI_API_KEY`).
     pub openai_api_key: String,
-    /// OpenAI model to use (`OPENAI_MODEL`)
+    /// OpenAI model to use (`OPENAI_MODEL`).
     #[serde(default = "default_openai_model")]
     pub openai_model: String,
-    /// Slack app token (`SLACK_APP_TOKEN`)
+    /// Optional custom system prompt to override the default (`SYSTEM_PROMPT`).
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Optional custom mention addendum prompt to override the default (`MENTION_ADDENDUM_PROMPT`).
+    #[serde(default)]
+    pub mention_addendum_prompt: Option<String>,
+    /// Sampling temperature to use for OpenAI model (`OPENAI_TEMPERATURE`).
+    /// Value between 0 and 2. Higher values like 0.8 make output more random,
+    /// while lower values like 0.2 make it more focused and deterministic.
+    #[serde(default = "default_openai_temperature")]
+    pub openai_temperature: f32,
+    /// Slack app token (`SLACK_APP_TOKEN`).
     pub slack_app_token: String,
-    /// Slack bot token (`SLACK_BOT_TOKEN`)
+    /// Slack bot token (`SLACK_BOT_TOKEN`).
     pub slack_bot_token: String,
-    /// Slack signing secret (`SLACK_SIGNING_SECRET`)
+    /// Slack signing secret (`SLACK_SIGNING_SECRET`).
     pub slack_signing_secret: String,
 }
 
@@ -34,6 +66,14 @@ impl Config {
             cfg = cfg.add_source(config::File::with_name(".hidden/config.toml"));
         }
 
-        Ok(cfg.build()?.try_deserialize()?)
+        let result = Config {
+            inner: Arc::new(cfg.build()?.try_deserialize()?),
+        };
+
+        if result.openai_temperature < 0.0 || result.openai_temperature > 2.0 {
+            return Err(anyhow::anyhow!("OpenAI temperature must be between 0 and 2").into());
+        }
+
+        Ok(result)
     }
 }

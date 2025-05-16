@@ -1,5 +1,7 @@
 //! Example prompt templates for LLM usage.
 
+use crate::base::config::Config;
+
 /// System prompt.
 pub const SYSTEM_PROMPT: &str = r#####"
 # Prime Directive
@@ -60,15 +62,33 @@ You should return a result using one of the following formats:
     "message": "{Anything you want to say in reply to help with (usually) first triage (sometimes a direct @-mention of you for more help).  Remember that you should _usually_ be tagging an oncall, and you should _usually_ try to use the other context you are given to provide message, channel, or incident links.  You can use slack's markdown formatting here.}",
 }
 
+## Input From User
+
+You will be provided with the raw Rust `Debug` output for the `SlackMessageEvent`.
+
 "#####;
 
 /// @-mention addendum.
 pub const MENTION_ADDENDUM: &str = r#####"
 # @-mention Directive
 
-Sometimes, you will be @-mentioned to help with a message that is not a top-level message.  In this case, you should try to help out as best you can, but if you are not able to, let the user know.  If the user is trying to get you to update your understanding, please do so.
+Sometimes, you will be @-mentioned (as a `SlackAppMentionEvent`) to help with a message that is not a top-level message.  In this case, you should try to help out as best you can, but if you are not able to, let the user know.  If the user is trying to get you to update your understanding, please do so.
 
 Sometimes, you will be @-mentioned, and the intent will be to _update_ your understanding of the channel in which you operate.  In this case, you should return a result that indicates that you are updating your understanding of the channel.  You should also update your understanding of the channel, and return a result that indicates that you are doing so.  The application server where you are hosted will store these messages for your future reference.
 
 As shown above, when you want to update your context, please user the `UpdateContext` result.  If you think the message constitutes the user asking you to _overwrite_ your channel directive (provided to you below), please use the `UpdateChannelDirective` result.  This is a subtle distinction, but it is important.  If you are not sure, please ask clarifying questions.
 "#####;
+
+/// Get the system prompt, using the config override if provided.
+pub fn get_system_prompt(config: &Config) -> &str {
+    if let Some(custom_prompt) = &config.system_prompt { custom_prompt } else { SYSTEM_PROMPT }
+}
+
+/// Get the mention addendum prompt, using the config override if provided.
+pub fn get_mention_addendum(config: &Config) -> &str {
+    if let Some(custom_addendum) = &config.mention_addendum_prompt {
+        custom_addendum
+    } else {
+        MENTION_ADDENDUM
+    }
+}

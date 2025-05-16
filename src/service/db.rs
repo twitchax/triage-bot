@@ -1,27 +1,39 @@
 //! SurrealDB implementation for triage-bot data storage.
 
-use crate::base::{config::Config, types::{Res, Void}};
-use serde::{Deserialize, Serialize};
-use surrealdb::{engine::local::{Db, Mem}};
-use surrealdb::Surreal;
-use tracing::{info, error, debug};
+use std::ops::Deref;
+
+use crate::base::{
+    config::Config,
+    types::{Res, Void},
+};
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
+use surrealdb::Surreal;
+use surrealdb::engine::local::{Db, Mem};
+use tracing::{debug, error, info, instrument};
 
 /// Database client for triage-bot.
+///
+/// This is trivially cloneable and can be passed around without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
 pub struct DbClient {
     /// The SurrealDB client instance.
     db: Surreal<Db>,
 }
 
+impl Deref for DbClient {
+    type Target = Surreal<Db>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
 // A Channel in the database.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Channel {
     pub id: Option<surrealdb::sql::Thing>,
-    pub channel_id: String,
-    pub name: String,
-    pub is_active: bool,
-    pub first_mentioned_at: chrono::DateTime<chrono::Utc>,
+    pub channel_prompt: String,
 }
 
 /// A message record in the database.
@@ -47,9 +59,10 @@ pub struct User {
 
 impl DbClient {
     /// Create a new database client.
-    /// 
+    ///
     /// This creates an in-memory database instance. For production, you would
     /// want to connect to a persistent database.
+    #[instrument(skip_all)]
     pub async fn new(config: &Config) -> Res<Self> {
         // Create an in-memory database
         let db = Surreal::new::<Mem>(()).await?;
@@ -57,21 +70,40 @@ impl DbClient {
         // Use a specific namespace and database
         db.use_ns("triage").use_db("bot").await?;
 
-        // Define schemas
+        // Define schemas.
 
         // Schema for list of channels that the bot has been "added to" (@-mentioned).
         db.query("DEFINE TABLE channel SCHEMAFULL").await?;
         db.query(
-            "DEFINE FIELD channel_id ON channel TYPE string;
-             DEFINE FIELD name ON channel TYPE string;
-             DEFINE FIELD is_active ON channel TYPE bool;
-             DEFINE FIELD first_mentioned_at ON channel TYPE datetime;
-             DEFINE INDEX channel_id_idx ON TABLE channel COLUMNS channel_id UNIQUE;"
-        ).await?;
+            "DEFINE FIELD channel_prompt ON channel TYPE string;",
+        )
+        .await?;
 
-        info!("Database initialized successfully");
+        info!("Database initialized successfully.");
 
         Ok(Self { db })
     }
-}
 
+    /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
+    #[instrument(skip(self))]
+    pub async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
+        let channel: Option<Channel> = self.select(("channel", channel_id)).await?;
+
+        if let Some(channel) = channel {
+            info!("Channel `{}` found.", channel_id);
+
+            Ok(channel)
+        } else {
+            info!("Channel `{}` not found, creating a new one.", channel_id);
+
+            let new_channel = Channel {
+                id: None,
+                channel_prompt: "# Channel prompt\n\nChannel prompt has not been set yet.\n\n".to_string(),
+            };
+
+            let channel: Channel = self.create(("channel", channel_id)).content(new_channel).await?.unwrap();
+
+            Ok(channel)
+        }
+    }
+}
