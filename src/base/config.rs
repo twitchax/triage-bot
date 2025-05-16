@@ -71,7 +71,7 @@ impl Config {
         };
 
         if result.openai_temperature < 0.0 || result.openai_temperature > 2.0 {
-            return Err(anyhow::anyhow!("OpenAI temperature must be between 0 and 2").into());
+            return Err(anyhow::anyhow!("OpenAI temperature must be between 0 and 2."));
         }
 
         Ok(result)
