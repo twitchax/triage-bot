@@ -4,10 +4,18 @@ use serde::Deserialize;
 
 use super::types::Res;
 
+/// Default OpenAI model to use
+fn default_openai_model() -> String {
+    "gpt-4.1".to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// OpenAI API key (`OPENAI_API_KEY`)
     pub openai_api_key: String,
+    /// OpenAI model to use (`OPENAI_MODEL`)
+    #[serde(default = "default_openai_model")]
+    pub openai_model: String,
     /// Slack app token (`SLACK_APP_TOKEN`)
     pub slack_app_token: String,
     /// Slack bot token (`SLACK_BOT_TOKEN`)

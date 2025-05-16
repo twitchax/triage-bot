@@ -1,3 +1,31 @@
+use serde::{Deserialize, Serialize};
+
 pub type Err = anyhow::Error;
 pub type Res<T> = Result<T, Err>;
 pub type Void = Res<()>;
+
+#[derive(Serialize, Deserialize)]
+pub enum LlmClassification {
+    Bug,
+    Feature,
+    Question,
+    Incident,
+    Other,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum LlmResult {
+    NoAction,
+    UpdateChannelDirective {
+        message: String,
+    },
+    UpdateContext {
+        message: String,
+    },
+    ReplyToThread {
+        thread_ts: String,
+        classification: LlmClassification,
+        message: String,
+    },
+}

@@ -3,7 +3,7 @@ use tracing::{error, info, instrument};
 
 use crate::base::types::Void;
 
-#[instrument]
+#[instrument(skip_all)]
 pub async fn handle_app_mention(event: SlackAppMentionEvent) -> Void {
     let result = handle_app_mention_internal(event).await;
 
@@ -14,7 +14,7 @@ pub async fn handle_app_mention(event: SlackAppMentionEvent) -> Void {
     result
 }
 
-#[instrument]
+#[instrument(skip_all)]
 async fn handle_app_mention_internal(event: SlackAppMentionEvent) -> Void {
     let channel = event.channel;
     let user = event.user;
