@@ -1,6 +1,7 @@
 //! Library root for `triage-bot`.
 
 pub mod base;
+pub mod runtime;
 pub mod service;
 pub mod interaction;
 
@@ -15,10 +16,12 @@ pub async fn start(config: Config) -> Void {
 
     // Start the crypto provider.
     crypto::ring::default_provider().install_default().unwrap();
+    
+    // Initialize the runtime.
+    let runtime = runtime::Runtime::new(config).await?;
 
-    // Initialize the Slack client.
-    let slack = SlackClient::new(&config).await?;
+    // Start the runtime.
+    runtime.start().await?;
 
-    // Start the Slack client connection via web sockets.
-    slack.start().await
+    Ok(())
 }

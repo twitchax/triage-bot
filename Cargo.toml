@@ -32,6 +32,7 @@ serde_with = "3"
 anyhow = "1"
 surrealdb = { version = "2", features = ["kv-mem"] }
 futures = "0.3"
+chrono = { version = "0.4" }
 # For future extensions (kept but unused for now)
 # bincode = { version = "1", optional = true }
 # ouroboros = { version = "0.17", optional = true }

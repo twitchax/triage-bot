@@ -8,14 +8,25 @@ use tracing::{instrument, warn};
 
 use std::sync::Arc;
 
+use super::db::DbClient;
+
+/// Slack client for the application.
+/// 
+/// It is designed to be trivially cloneable, allowing it to be passed around
+/// without the need for `Arc` or `Mutex`.
+#[derive(Clone)]
 pub struct SlackClient {
-    token: SlackApiToken,
+    app_token: Arc<SlackApiToken>,
+    bot_token: Arc<SlackApiToken>,
+    client: Arc<slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>>,
     socket_mode_listener: Arc<SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>>,
+    db: DbClient,
 }
 
 impl SlackClient {
-    pub async fn new(config: &Config) -> Res<Self> {
-        let token = SlackApiToken::new(SlackApiTokenValue(config.slack_bot_token.clone()));
+    pub async fn new(config: &Config, db: DbClient) -> Res<Self> {
+        let app_token = Arc::new(SlackApiToken::new(SlackApiTokenValue(config.slack_app_token.clone())));
+        let bot_token = Arc::new(SlackApiToken::new(SlackApiTokenValue(config.slack_bot_token.clone())));
 
         let https_connector = HttpsConnector::<HttpConnector>::builder().with_native_roots()?.https_only().enable_all_versions().build();
         let connector = SlackClientHyperConnector::with_connector(https_connector);
@@ -35,12 +46,12 @@ impl SlackClient {
             socket_mode_callbacks,
         ));
 
-        Ok(Self { token, socket_mode_listener })
+        Ok(Self { app_token, bot_token, client, socket_mode_listener, db })
     }
 
     pub async fn start(&self) -> Void {
         // Register an app token to listen for events,
-        self.socket_mode_listener.listen_for(&self.token).await?;
+        self.socket_mode_listener.listen_for(&self.app_token).await?;
 
         // Start WS connections calling Slack API to get WS url for the token,
         // and wait for Ctrl-C to shutdown.
@@ -70,7 +81,7 @@ async fn handle_interaction_event(event: SlackInteractionEvent, _client: Arc<Sla
 }
 
 /// Handles push events from Slack.
-#[instrument(skip(_states))]
+#[instrument(skip_all)]
 async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<SlackHyperClient>, _states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event = event_callback.event;
 
