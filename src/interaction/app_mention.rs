@@ -8,7 +8,7 @@ pub async fn handle_app_mention(event: SlackAppMentionEvent) -> Void {
     let result = handle_app_mention_internal(event).await;
 
     if let Err(err) = &result {
-        error!("[HANDLE_APP_MENTION] Error while handling: {}", err);
+        error!("Error while handling: {}", err);
     }
 
     result
@@ -20,7 +20,7 @@ async fn handle_app_mention_internal(event: SlackAppMentionEvent) -> Void {
     let user = event.user;
     let text = event.content.text.unwrap_or_default();
 
-    info!("[HANDLE_APP_MENTION] `{}` => `{}`: `{}`.", user, channel, text);
+    info!("`{}` => `{}`: `{}`.", user, channel, text);
 
     Ok(())
 }

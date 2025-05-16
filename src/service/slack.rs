@@ -98,7 +98,7 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
         SlackEventCallbackBody::StarAdded(slack_star_added_event) => todo!(),
         SlackEventCallbackBody::StarRemoved(slack_star_removed_event) => todo!(),
         _ => {
-            warn!("[PUSH] Received unhandled push event.")
+            warn!("Received unhandled push event.")
         }
     }
 
