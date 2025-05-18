@@ -54,6 +54,12 @@ pub struct ConfigInner {
     pub slack_bot_token: String,
     /// Slack signing secret (`SLACK_SIGNING_SECRET`).
     pub slack_signing_secret: String,
+    /// Database endpoint URL (`DB_ENDPOINT`).
+    pub db_endpoint: String,
+    /// Database username (`DB_USERNAME`).
+    pub db_username: String,
+    /// Database password (`DB_PASSWORD`).
+    pub db_password: String,
 }
 
 impl Config {

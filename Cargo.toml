@@ -7,6 +7,9 @@ description = "A Slack triage bot using LLMs."
 license = "MIT"
 repository = "https://github.com/twitchax/triage-bot"
 
+[profile.release]
+incremental = true
+
 [lib]
 name = "triage_bot"
 path = "src/lib.rs"

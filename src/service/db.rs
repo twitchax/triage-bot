@@ -8,7 +8,7 @@ use crate::base::{
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use surrealdb::Surreal;
+use surrealdb::{engine::remote::ws::{Client, Ws, Wss}, opt::auth::Root, Surreal};
 use surrealdb::engine::local::{Db, Mem};
 use tracing::{debug, error, info, instrument};
 
@@ -18,11 +18,11 @@ use tracing::{debug, error, info, instrument};
 #[derive(Clone)]
 pub struct DbClient {
     /// The SurrealDB client instance.
-    db: Surreal<Db>,
+    db: Surreal<Client>,
 }
 
 impl Deref for DbClient {
-    type Target = Surreal<Db>;
+    type Target = Surreal<Client>;
 
     fn deref(&self) -> &Self::Target {
         &self.db
@@ -65,7 +65,13 @@ impl DbClient {
     #[instrument(skip_all)]
     pub async fn new(config: &Config) -> Res<Self> {
         // Create an in-memory database
-        let db = Surreal::new::<Mem>(()).await?;
+        let db = Surreal::new::<Ws>(&config.db_endpoint).await?;
+
+        // Authenticate with the database using the provided username and password.
+        db.signin(Root {
+            username: &config.db_username,
+            password: &config.db_password
+        }).await?;
 
         // Use a specific namespace and database
         db.use_ns("triage").use_db("bot").await?;

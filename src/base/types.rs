@@ -4,7 +4,7 @@ pub type Err = anyhow::Error;
 pub type Res<T> = Result<T, Err>;
 pub type Void = Res<()>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum LlmClassification {
     Bug,
     Feature,
@@ -13,7 +13,7 @@ pub enum LlmClassification {
     Other,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum LlmResult {
     NoAction,

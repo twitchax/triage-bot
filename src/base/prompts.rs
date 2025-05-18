@@ -23,7 +23,7 @@ We aren't going to use a ton of fields, so you should encapsulate the entire mes
 
 ## Results
 
-You should return a result using one of the following formats:
+You should return a result using one of the following formats.  However, return _just_ the JSON so that the application server can parse it.  You should not return any other text, and you should not return any other formatting.  Just the JSON.  No code blocks, no markdown.  Just the JSON.
 
 ### No Action
 
@@ -56,7 +56,7 @@ You should return a result using one of the following formats:
 ```json
 {
     "type": "ReplyToThread",
-    "classification": "{bug|feature|question|incident|other}",
+    "classification": "{Bug|Feature|Question|Incident|Other}",
     "channel": "{The channel in which the message was sent.  This will be used to send the reply.}",
     "thread_ts": "{The thread timestamp of the message you are replying to.  This will be used to reply to the thread.}",
     "message": "{Anything you want to say in reply to help with (usually) first triage (sometimes a direct @-mention of you for more help).  Remember that you should _usually_ be tagging an oncall, and you should _usually_ try to use the other context you are given to provide message, channel, or incident links.  You can use slack's markdown formatting here.}",

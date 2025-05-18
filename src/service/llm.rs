@@ -62,7 +62,7 @@ impl LlmClient {
 
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip(self))]
-    pub async fn generate_response(&self, user_message: &str) -> Res<LlmResult> {
+    pub async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<LlmResult> {
         debug!("Generating response with system prompt and user message");
 
         let mut messages = vec![
@@ -73,6 +73,10 @@ impl LlmClient {
             ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
                 content: ChatCompletionRequestSystemMessageContent::Text(self.inner.mention_addendum_prompt.clone()),
                 name: Some("System".to_string()),
+            }),
+            ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
+                content: ChatCompletionRequestSystemMessageContent::Text(channel_prompt.to_string()),
+                name: Some("ChannelAdmin".to_string()),
             }),
             ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
                 content: ChatCompletionRequestUserMessageContent::Text(user_message.to_string()),
