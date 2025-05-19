@@ -58,14 +58,11 @@ impl Deref for ChatClient {
     }
 }
 
-impl ChatClient
-{
+impl ChatClient {
     /// Creates a new Slack chat client.
     pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
         let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
-        Ok(Self {
-            inner: Arc::new(client),
-        })
+        Ok(Self { inner: Arc::new(client) })
     }
 }
 
@@ -160,18 +157,13 @@ impl GenericChatClient for SlackChatClient {
 
     #[instrument(skip(self))]
     async fn send_message(&self, channel_id: &str, text: &str) -> Void {
-        let message = SlackMessageContent::new()
-            .with_text(text.to_string());
+        let message = SlackMessageContent::new().with_text(text.to_string());
 
-        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message)
-            .with_as_user(true);
+        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message).with_as_user(true);
 
         let session = self.client.open_session(&self.bot_token);
 
-        let _ = session
-            .chat_post_message(&request)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+        let _ = session.chat_post_message(&request).await.map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
 
         Ok(())
     }

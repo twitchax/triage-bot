@@ -2,13 +2,14 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use crate::base::{
-    config::Config,
-    types::Res,
-};
+use crate::base::{config::Config, types::Res};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use surrealdb::{engine::remote::ws::{Client, Ws}, opt::auth::Root, Surreal};
+use surrealdb::{
+    Surreal,
+    engine::remote::ws::{Client, Ws},
+    opt::auth::Root,
+};
 use tracing::{info, instrument};
 
 // Traits.
@@ -103,8 +104,9 @@ impl SurrealDbClient {
         // Authenticate with the database using the provided username and password.
         db.signin(Root {
             username: &config.db_username,
-            password: &config.db_password
-        }).await?;
+            password: &config.db_password,
+        })
+        .await?;
 
         // Use a specific namespace and database
         db.use_ns("triage").use_db("bot").await?;
@@ -113,10 +115,7 @@ impl SurrealDbClient {
 
         // Schema for list of channels that the bot has been "added to" (@-mentioned).
         db.query("DEFINE TABLE channel SCHEMAFULL").await?;
-        db.query(
-            "DEFINE FIELD channel_prompt ON channel TYPE string;",
-        )
-        .await?;
+        db.query("DEFINE FIELD channel_prompt ON channel TYPE string;").await?;
 
         info!("Database initialized successfully.");
 

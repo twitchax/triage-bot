@@ -1,7 +1,10 @@
 use slack_morphism::events::SlackMessageEvent;
-use tracing::{error, instrument, Instrument};
+use tracing::{Instrument, error, instrument};
 
-use crate::{base::types::Void, service::{db::DbClient, llm::LlmClient}};
+use crate::{
+    base::types::Void,
+    service::{db::DbClient, llm::LlmClient},
+};
 
 #[instrument(skip_all)]
 pub fn handle_message(event: SlackMessageEvent, db: DbClient, llm: LlmClient) {

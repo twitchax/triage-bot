@@ -1,7 +1,10 @@
 use slack_morphism::events::SlackAppMentionEvent;
-use tracing::{error, instrument, warn, Instrument};
+use tracing::{Instrument, error, instrument, warn};
 
-use crate::{base::types::Void, service::{db::DbClient, llm::LlmClient}};
+use crate::{
+    base::types::Void,
+    service::{db::DbClient, llm::LlmClient},
+};
 
 #[instrument(skip_all)]
 pub fn handle_app_mention(event: SlackAppMentionEvent, db: DbClient, llm: LlmClient) {

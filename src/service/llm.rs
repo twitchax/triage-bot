@@ -48,9 +48,7 @@ impl Deref for LlmClient {
 impl LlmClient {
     pub fn openai(config: &Config) -> Self {
         let client = OpenAiLlmClient::new(config);
-        Self {
-            inner: Arc::new(client),
-        }
+        Self { inner: Arc::new(client) }
     }
 }
 
