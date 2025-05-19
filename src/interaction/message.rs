@@ -1,5 +1,5 @@
 use slack_morphism::events::SlackMessageEvent;
-use tracing::{error, info, instrument, Instrument};
+use tracing::{error, instrument, Instrument};
 
 use crate::{base::types::Void, service::{db::DbClient, llm::LlmClient}};
 

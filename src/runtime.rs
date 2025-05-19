@@ -2,13 +2,12 @@
 
 use tracing::instrument;
 
-use crate::{base::config::Config, service::chat::GenericChatClient};
+use crate::{base::config::Config};
 use crate::service::db::DbClient;
 use crate::{
     base::types::{Res, Void},
     service::{llm::LlmClient, chat::ChatClient},
 };
-use std::sync::Arc;
 
 /// Runtime service context that can be shared across the application.
 ///

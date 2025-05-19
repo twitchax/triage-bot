@@ -1,5 +1,5 @@
 use slack_morphism::events::SlackAppMentionEvent;
-use tracing::{error, info, instrument, warn, Instrument};
+use tracing::{error, instrument, warn, Instrument};
 
 use crate::{base::types::Void, service::{db::DbClient, llm::LlmClient}};
 

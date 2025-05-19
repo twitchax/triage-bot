@@ -4,14 +4,12 @@ use std::{ops::Deref, sync::Arc};
 
 use crate::base::{
     config::Config,
-    types::{Res, Void},
+    types::Res,
 };
-use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use surrealdb::{engine::remote::ws::{Client, Ws, Wss}, opt::auth::Root, Surreal};
-use surrealdb::engine::local::{Db, Mem};
-use tracing::{debug, error, info, instrument};
+use surrealdb::{engine::remote::ws::{Client, Ws}, opt::auth::Root, Surreal};
+use tracing::{info, instrument};
 
 // Traits.
 

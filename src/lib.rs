@@ -7,7 +7,6 @@ pub mod service;
 
 use base::{config::Config, types::Void};
 use rustls::crypto;
-use service::chat::ChatClient;
 use tracing::info;
 
 /// Public async entry for the binary crate.

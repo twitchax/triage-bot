@@ -115,7 +115,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateChatCompletionRequestArgs::default().model(&self.model).messages(messages).temperature(0.7).build()?;
+            let request = CreateChatCompletionRequestArgs::default().model(&self.model).messages(messages).temperature(self.temperature).build()?;
 
             let response = self.client.chat().create(request).await?;
             let content = response.choices.first().and_then(|choice| choice.message.content.clone()).unwrap_or_default();
