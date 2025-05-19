@@ -15,7 +15,7 @@ pub enum LlmClassification {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum LlmResult {
+pub enum LlmResponse {
     NoAction,
     UpdateChannelDirective { message: String },
     UpdateContext { message: String },

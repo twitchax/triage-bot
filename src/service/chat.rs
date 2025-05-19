@@ -27,8 +27,12 @@ type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsCon
 /// Generic "chat" trait that clients must implement.
 #[async_trait]
 pub trait GenericChatClient {
+    /// Start the chat client listener.
     async fn start(&self) -> Void;
-    async fn send_message(&self, channel_id: &str, text: &str) -> Void;
+    /// Send a message to a channel thread.
+    async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+    /// React to a message with an emoji.
+    async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
 }
 
 // Structs.
@@ -37,8 +41,8 @@ pub trait GenericChatClient {
 struct SlackUserState {
     db: DbClient,
     llm: LlmClient,
-    slack_client: Arc<FullClient>,
-    user_id: String,
+    chat_client: ChatClient,
+    bot_user_id: String,
 }
 
 /// Slack client for the application.
@@ -66,6 +70,12 @@ impl ChatClient {
     }
 }
 
+impl From<SlackChatClient> for ChatClient {
+    fn from(client: SlackChatClient) -> Self {
+        Self { inner: Arc::new(client) }
+    }
+}
+
 // Specific implementations.
 
 /// Slack client implementation.
@@ -73,9 +83,8 @@ impl ChatClient {
 struct SlackChatClient {
     app_token: SlackApiToken,
     bot_token: SlackApiToken,
-    user_id: String,
+    bot_user_id: String,
     client: Arc<FullClient>,
-    socket_mode_listener: Arc<Listener>,
     db: DbClient,
     llm: LlmClient,
 }
@@ -105,36 +114,13 @@ impl SlackChatClient {
 
         let session = client.open_session(&bot_token);
         let bot_user = session.auth_test().await?;
-        let user_id = bot_user.user_id.0;
-
-        // Initialize the socket mode listener.
-
-        let socket_mode_callbacks = SlackSocketModeListenerCallbacks::new()
-            .with_command_events(handle_command_event)
-            .with_interaction_events(handle_interaction_event)
-            .with_push_events(handle_push_event);
-
-        // Initialize the socket mode listener environment.
-
-        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()).with_user_state(SlackUserState {
-            db: db.clone(),
-            llm: llm.clone(),
-            user_id: user_id.clone(),
-            slack_client: client.clone(),
-        }));
-
-        let socket_mode_listener = Arc::new(SlackClientSocketModeListener::new(
-            &SlackClientSocketModeConfig::new(),
-            listener_environment.clone(),
-            socket_mode_callbacks,
-        ));
+        let bot_user_id = bot_user.user_id.0;
 
         Ok(Self {
             app_token,
             bot_token,
-            user_id,
+            bot_user_id,
             client,
-            socket_mode_listener,
             db,
             llm,
         })
@@ -144,26 +130,59 @@ impl SlackChatClient {
 #[async_trait]
 impl GenericChatClient for SlackChatClient {
     async fn start(&self) -> Void {
+        // Initialize the socket mode listener.
+
+        let socket_mode_callbacks = SlackSocketModeListenerCallbacks::new()
+            .with_command_events(handle_command_event)
+            .with_interaction_events(handle_interaction_event)
+            .with_push_events(handle_push_event);
+
+        // Initialize the socket mode listener environment.
+
+        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(self.client.clone()).with_user_state(SlackUserState {
+            db: self.db.clone(),
+            llm: self.llm.clone(),
+            bot_user_id: self.bot_user_id.clone(),
+            chat_client: ChatClient::from(self.clone()),
+        }));
+
+        let socket_mode_listener = Arc::new(SlackClientSocketModeListener::new(
+            &SlackClientSocketModeConfig::new(),
+            listener_environment.clone(),
+            socket_mode_callbacks,
+        ));
+
         // Register an app token to listen for events,
-        self.socket_mode_listener.listen_for(&self.app_token).await?;
+        socket_mode_listener.listen_for(&self.app_token).await?;
 
         // Start WS connections calling Slack API to get WS url for the token,
         // and wait for Ctrl-C to shutdown.
         // There are also `.start()`/`.shutdown()` available to manage manually
-        self.socket_mode_listener.serve().await;
+        socket_mode_listener.serve().await;
 
         Ok(())
     }
 
     #[instrument(skip(self))]
-    async fn send_message(&self, channel_id: &str, text: &str) -> Void {
+    async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void {
         let message = SlackMessageContent::new().with_text(text.to_string());
 
-        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message).with_as_user(true);
+        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message).with_as_user(true).with_thread_ts(SlackTs(thread_ts.to_string()));
 
         let session = self.client.open_session(&self.bot_token);
 
         let _ = session.chat_post_message(&request).await.map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void {
+        let request = SlackApiReactionsAddRequest { channel: SlackChannelId(channel_id.to_string()), name: SlackReactionName(emoji.to_string()), timestamp: SlackTs(thread_ts.to_string()) };
+
+        let session = self.client.open_session(&self.bot_token);
+
+        let _ = session.reactions_add(&request).await.map_err(|e| anyhow::anyhow!("Failed to react to message: {}", e))?;
 
         Ok(())
     }
@@ -199,7 +218,7 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
             // If the message @mentions the bot, skip, and let the app mention handler take care of it.
 
             let text = slack_message_event.content.as_ref().map(|c| c.text.as_deref()).unwrap_or_default().unwrap_or_default();
-            if text.contains(&user_state.user_id) {
+            if text.contains(&user_state.bot_user_id) {
                 warn!("Skipping message event because it mentions the bot.");
                 return Ok(());
             }
@@ -207,7 +226,7 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
             interaction::message::handle_message(slack_message_event, user_state.db.clone(), user_state.llm.clone());
         }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
-            interaction::app_mention::handle_app_mention(slack_app_mention_event, user_state.db.clone(), user_state.llm.clone());
+            interaction::app_mention::handle_app_mention(slack_app_mention_event, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
         }
         SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),
         SlackEventCallbackBody::ReactionAdded(slack_reaction_added_event) => todo!(),

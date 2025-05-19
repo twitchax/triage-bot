@@ -2,9 +2,10 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use crate::base::{config::Config, types::Res};
+use crate::base::{config::Config, types::{Res, Void}};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use surrealdb::{
     Surreal,
     engine::remote::ws::{Client, Ws},
@@ -17,7 +18,10 @@ use tracing::{info, instrument};
 /// Generic database client trait that clients must implement.
 #[async_trait]
 pub trait GenericDbClient {
+    /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
+    /// Updates the channel prompt in the database.
+    async fn update_channel_prompt(&self, channel_id: &str, prompt: &str) -> Res<()>;
 }
 
 /// Database client for triage-bot.
@@ -53,17 +57,6 @@ impl DbClient {
 pub struct Channel {
     pub id: Option<surrealdb::sql::Thing>,
     pub channel_prompt: String,
-}
-
-/// A message record in the database.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message {
-    pub id: Option<surrealdb::sql::Thing>,
-    pub channel_id: String,
-    pub user_id: String,
-    pub text: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub is_processed: bool,
 }
 
 /// A user record in the database.
@@ -125,7 +118,6 @@ impl SurrealDbClient {
 
 #[async_trait]
 impl GenericDbClient for SurrealDbClient {
-    /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
     #[instrument(skip(self))]
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
         let channel: Option<Channel> = self.select(("channel", channel_id)).await?;
@@ -146,5 +138,17 @@ impl GenericDbClient for SurrealDbClient {
 
             Ok(channel)
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn update_channel_prompt(&self, channel_id: &str, prompt: &str) -> Void {
+        let _: Option<Channel> = self
+            .update(("channel", channel_id))
+            .merge(json!({ "channel_prompt": prompt }))
+            .await?;
+
+        info!("Channel `{}` updated.", channel_id);
+
+        Ok(())
     }
 }

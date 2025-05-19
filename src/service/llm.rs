@@ -2,7 +2,7 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use crate::base::types::{LlmResult, Res};
+use crate::base::types::{LlmResponse, Res};
 use crate::base::{
     config::Config,
     prompts::{get_mention_addendum, get_system_prompt},
@@ -24,7 +24,7 @@ use tracing::{debug, instrument};
 #[async_trait]
 pub trait GenericLlmClient {
     /// Generate a response from a static system prompt and user message.
-    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<LlmResult>;
+    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
 }
 
 // Structs.
@@ -86,7 +86,7 @@ impl OpenAiLlmClient {
 impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip(self))]
-    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<LlmResult> {
+    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
         debug!("Generating response with system prompt and user message");
 
         let mut messages = vec![
@@ -119,7 +119,7 @@ impl GenericLlmClient for OpenAiLlmClient {
             let content = response.choices.first().and_then(|choice| choice.message.content.clone()).unwrap_or_default();
 
             // deserialize the response to the `LlmResult` type.
-            let result: LlmResult = serde_json::from_str(&content)?;
+            let result: Vec<LlmResponse> = serde_json::from_str(&content)?;
 
             // This may change, but for now, always break after one message.
             break result;
