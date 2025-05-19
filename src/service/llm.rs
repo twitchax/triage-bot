@@ -22,7 +22,7 @@ use tracing::{debug, instrument};
 
 /// Generic LLM client trait that clients must implement.
 #[async_trait]
-pub(crate) trait GenericLlmClient {
+pub trait GenericLlmClient {
     /// Generate a response from a static system prompt and user message.
     async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<LlmResult>;
 }

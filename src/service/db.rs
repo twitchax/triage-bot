@@ -17,7 +17,7 @@ use tracing::{debug, error, info, instrument};
 
 /// Generic database client trait that clients must implement.
 #[async_trait]
-pub(crate) trait GenericDbClient {
+pub trait GenericDbClient {
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
 }
 

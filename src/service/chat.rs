@@ -46,25 +46,19 @@ struct SlackUserState {
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct ChatClient<T>
-where 
-    T: GenericChatClient + Send + Sync + 'static,
-{
-    inner: Arc<T>,
+pub struct ChatClient {
+    inner: Arc<dyn GenericChatClient + Send + Sync + 'static>,
 }
 
-impl<T> Deref for ChatClient<T>
-where 
-    T: GenericChatClient + Send + Sync + 'static,
-{
-    type Target = T;
+impl Deref for ChatClient {
+    type Target = dyn GenericChatClient + Send + Sync + 'static;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &*self.inner
     }
 }
 
-impl ChatClient<SlackChatClient>
+impl ChatClient
 {
     /// Creates a new Slack chat client.
     pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {

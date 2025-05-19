@@ -16,10 +16,7 @@ use std::sync::Arc;
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct Runtime<D, L, C>
-where
-    C: GenericChatClient + Send + Sync + 'static,
-{
+pub struct Runtime {
     /// The configuration for the application.
     pub config: Config,
     /// The database client instance.
@@ -27,7 +24,7 @@ where
     /// The LLM client instance.
     pub llm: LlmClient,
     /// The slack client instance.
-    pub chat: ChatClient<C>,
+    pub chat: ChatClient,
 }
 
 impl Runtime {
@@ -35,13 +32,13 @@ impl Runtime {
     #[instrument(skip_all)]
     pub async fn new(config: Config) -> Res<Self> {
         // Initialize the database.
-        let db = DbClient::new(&config).await?;
+        let db = DbClient::surreal(&config).await?;
 
         // Initialize the LLM client.
-        let llm = LlmClient::new(&config);
+        let llm = LlmClient::openai(&config);
 
         // Initialize the slack client
-        let slack = ChatClient::slack(&config, db.clone(), llm.clone()).await?;
+        let chat = ChatClient::slack(&config, db.clone(), llm.clone()).await?;
 
         Ok(Self { config, db, llm, chat })
     }
