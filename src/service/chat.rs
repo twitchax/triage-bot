@@ -1,4 +1,4 @@
-//! Thin wrapper around Slack-Morphism client.
+//! Wrapper around chat clients.
 
 use crate::{
     base::{
@@ -7,6 +7,7 @@ use crate::{
     },
     interaction,
 };
+use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use slack_morphism::prelude::*;
@@ -16,10 +17,24 @@ use std::{ops::Deref, sync::Arc};
 
 use super::{db::DbClient, llm::LlmClient};
 
+// Type aliases.
+
 type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 
-struct UserState {
+// Traits.
+
+/// Generic "chat" trait that clients must implement.
+#[async_trait]
+pub trait GenericChatClient {
+    async fn start(&self) -> Void;
+    async fn send_message(&self, channel_id: &str, text: &str) -> Void;
+}
+
+// Structs.
+
+/// User state for the slack socket client.
+struct SlackUserState {
     db: DbClient,
     llm: LlmClient,
     slack_client: Arc<FullClient>,
@@ -31,12 +46,40 @@ struct UserState {
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct ChatClient {
-    inner: Arc<ChatClientInner>,
+pub struct ChatClient<T>
+where 
+    T: GenericChatClient + Send + Sync + 'static,
+{
+    inner: Arc<T>,
 }
 
+impl<T> Deref for ChatClient<T>
+where 
+    T: GenericChatClient + Send + Sync + 'static,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl ChatClient<SlackChatClient>
+{
+    /// Creates a new Slack chat client.
+    pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
+        let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
+        Ok(Self {
+            inner: Arc::new(client),
+        })
+    }
+}
+
+// Specific implementations.
+
+/// Slack client implementation.
 #[derive(Clone)]
-struct ChatClientInner {
+struct SlackChatClient {
     app_token: SlackApiToken,
     bot_token: SlackApiToken,
     user_id: String,
@@ -46,15 +89,15 @@ struct ChatClientInner {
     llm: LlmClient,
 }
 
-impl Deref for ChatClient {
+impl Deref for SlackChatClient {
     type Target = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner.client
+        &self.client
     }
 }
 
-impl ChatClient {
+impl SlackChatClient {
     pub async fn new(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
         // Initialize tokens.
 
@@ -82,7 +125,7 @@ impl ChatClient {
 
         // Initialize the socket mode listener environment.
 
-        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()).with_user_state(UserState {
+        let listener_environment = Arc::new(SlackClientEventsListenerEnvironment::new(client.clone()).with_user_state(SlackUserState {
             db: db.clone(),
             llm: llm.clone(),
             user_id: user_id.clone(),
@@ -96,32 +139,51 @@ impl ChatClient {
         ));
 
         Ok(Self {
-            inner: Arc::new(ChatClientInner {
-                app_token,
-                bot_token,
-                user_id,
-                client,
-                socket_mode_listener,
-                db,
-                llm,
-            }),
+            app_token,
+            bot_token,
+            user_id,
+            client,
+            socket_mode_listener,
+            db,
+            llm,
         })
     }
+}
 
-    pub async fn start(&self) -> Void {
+#[async_trait]
+impl GenericChatClient for SlackChatClient {
+    async fn start(&self) -> Void {
         // Register an app token to listen for events,
-        self.inner.socket_mode_listener.listen_for(&self.inner.app_token).await?;
+        self.socket_mode_listener.listen_for(&self.app_token).await?;
 
         // Start WS connections calling Slack API to get WS url for the token,
         // and wait for Ctrl-C to shutdown.
         // There are also `.start()`/`.shutdown()` available to manage manually
-        self.inner.socket_mode_listener.serve().await;
+        self.socket_mode_listener.serve().await;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn send_message(&self, channel_id: &str, text: &str) -> Void {
+        let message = SlackMessageContent::new()
+            .with_text(text.to_string());
+
+        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message)
+            .with_as_user(true);
+
+        let session = self.client.open_session(&self.bot_token);
+
+        let _ = session
+            .chat_post_message(&request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
 
         Ok(())
     }
 }
 
-// Socket mode listener callbacks.
+// Socket mode listener callbacks for Slack..
 
 /// Handles command events from Slack.
 async fn handle_command_event(
@@ -144,7 +206,7 @@ async fn handle_interaction_event(event: SlackInteractionEvent, _client: Arc<Sla
 async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<SlackHyperClient>, states: SlackClientEventsUserState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event = event_callback.event;
     let states = states.read().await;
-    let user_state = states.get_user_state::<UserState>().ok_or(anyhow::anyhow!("Failed to get user state"))?;
+    let user_state = states.get_user_state::<SlackUserState>().ok_or(anyhow::anyhow!("Failed to get user state"))?;
 
     match event {
         SlackEventCallbackBody::Message(slack_message_event) => {

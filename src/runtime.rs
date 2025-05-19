@@ -2,7 +2,7 @@
 
 use tracing::instrument;
 
-use crate::base::config::Config;
+use crate::{base::config::Config, service::chat::GenericChatClient};
 use crate::service::db::DbClient;
 use crate::{
     base::types::{Res, Void},
@@ -16,7 +16,10 @@ use std::sync::Arc;
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct Runtime {
+pub struct Runtime<D, L, C>
+where
+    C: GenericChatClient + Send + Sync + 'static,
+{
     /// The configuration for the application.
     pub config: Config,
     /// The database client instance.
@@ -24,7 +27,7 @@ pub struct Runtime {
     /// The LLM client instance.
     pub llm: LlmClient,
     /// The slack client instance.
-    pub slack: ChatClient,
+    pub chat: ChatClient<C>,
 }
 
 impl Runtime {
@@ -38,12 +41,12 @@ impl Runtime {
         let llm = LlmClient::new(&config);
 
         // Initialize the slack client
-        let slack = ChatClient::new(&config, db.clone(), llm.clone()).await?;
+        let slack = ChatClient::slack(&config, db.clone(), llm.clone()).await?;
 
-        Ok(Self { config, db, llm, slack })
+        Ok(Self { config, db, llm, chat })
     }
 
     pub async fn start(&self) -> Void {
-        self.slack.start().await
+        self.chat.start().await
     }
 }

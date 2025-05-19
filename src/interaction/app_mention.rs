@@ -18,7 +18,6 @@ pub fn handle_app_mention(event: SlackAppMentionEvent, db: DbClient, llm: LlmCli
 
 #[instrument(skip_all)]
 async fn handle_app_mention_internal(event: SlackAppMentionEvent, db: &DbClient, llm: &LlmClient) -> Void {
-    let event = dbg!(event);
     let channel_id = &event.channel.0;
 
     // First, get the channel info from the database.

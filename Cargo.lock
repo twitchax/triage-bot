@@ -4853,6 +4853,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
+ "async-trait",
  "chrono",
  "clap",
  "config",

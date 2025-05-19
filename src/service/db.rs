@@ -1,33 +1,53 @@
-//! SurrealDB implementation for triage-bot data storage.
+//! Database implementation for triage-bot data storage.
 
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
 use crate::base::{
     config::Config,
     types::{Res, Void},
 };
 use anyhow::anyhow;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use surrealdb::{engine::remote::ws::{Client, Ws, Wss}, opt::auth::Root, Surreal};
 use surrealdb::engine::local::{Db, Mem};
 use tracing::{debug, error, info, instrument};
+
+// Traits.
+
+/// Generic database client trait that clients must implement.
+#[async_trait]
+pub(crate) trait GenericDbClient {
+    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
+}
 
 /// Database client for triage-bot.
 ///
 /// This is trivially cloneable and can be passed around without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
 pub struct DbClient {
-    /// The SurrealDB client instance.
-    db: Surreal<Client>,
+    /// The database client instance.
+    inner: Arc<dyn GenericDbClient + Send + Sync + 'static>,
 }
 
 impl Deref for DbClient {
-    type Target = Surreal<Client>;
+    type Target = dyn GenericDbClient + Send + Sync + 'static;
 
     fn deref(&self) -> &Self::Target {
-        &self.db
+        self.inner.as_ref()
     }
 }
+
+impl DbClient {
+    /// Create a new database client.
+    #[instrument(skip_all)]
+    pub async fn surreal(config: &Config) -> Res<Self> {
+        let db = SurrealDbClient::new(config).await?;
+        Ok(Self { inner: Arc::new(db) })
+    }
+}
+
+// Data types.
 
 // A Channel in the database.
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,7 +77,22 @@ pub struct User {
     pub email: Option<String>,
 }
 
-impl DbClient {
+// SurrealDB client implementation.
+
+/// Database client for SurrealDB.
+pub struct SurrealDbClient {
+    db: Surreal<Client>,
+}
+
+impl Deref for SurrealDbClient {
+    type Target = Surreal<Client>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl SurrealDbClient {
     /// Create a new database client.
     ///
     /// This creates an in-memory database instance. For production, you would
@@ -89,10 +124,13 @@ impl DbClient {
 
         Ok(Self { db })
     }
+}
 
+#[async_trait]
+impl GenericDbClient for SurrealDbClient {
     /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
     #[instrument(skip(self))]
-    pub async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
+    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
         let channel: Option<Channel> = self.select(("channel", channel_id)).await?;
 
         if let Some(channel) = channel {
