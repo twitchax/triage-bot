@@ -31,12 +31,12 @@ struct UserState {
 /// It is designed to be trivially cloneable, allowing it to be passed around
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct SlackClient {
-    inner: Arc<SlackClientInner>,
+pub struct ChatClient {
+    inner: Arc<ChatClientInner>,
 }
 
 #[derive(Clone)]
-struct SlackClientInner {
+struct ChatClientInner {
     app_token: SlackApiToken,
     bot_token: SlackApiToken,
     user_id: String,
@@ -46,7 +46,7 @@ struct SlackClientInner {
     llm: LlmClient,
 }
 
-impl Deref for SlackClient {
+impl Deref for ChatClient {
     type Target = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 
     fn deref(&self) -> &Self::Target {
@@ -54,7 +54,7 @@ impl Deref for SlackClient {
     }
 }
 
-impl SlackClient {
+impl ChatClient {
     pub async fn new(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
         // Initialize tokens.
 
@@ -96,7 +96,7 @@ impl SlackClient {
         ));
 
         Ok(Self {
-            inner: Arc::new(SlackClientInner {
+            inner: Arc::new(ChatClientInner {
                 app_token,
                 bot_token,
                 user_id,

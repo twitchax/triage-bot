@@ -6,7 +6,7 @@ use crate::base::config::Config;
 use crate::service::db::DbClient;
 use crate::{
     base::types::{Res, Void},
-    service::{llm::LlmClient, slack::SlackClient},
+    service::{llm::LlmClient, chat::ChatClient},
 };
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ pub struct Runtime {
     /// The LLM client instance.
     pub llm: LlmClient,
     /// The slack client instance.
-    pub slack: SlackClient,
+    pub slack: ChatClient,
 }
 
 impl Runtime {
@@ -38,7 +38,7 @@ impl Runtime {
         let llm = LlmClient::new(&config);
 
         // Initialize the slack client
-        let slack = SlackClient::new(&config, db.clone(), llm.clone()).await?;
+        let slack = ChatClient::new(&config, db.clone(), llm.clone()).await?;
 
         Ok(Self { config, db, llm, slack })
     }
