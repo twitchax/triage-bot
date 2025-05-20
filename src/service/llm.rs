@@ -1,6 +1,6 @@
 //! Thin wrapper around async-openai for OpenAI LLM calls.
 
-use std::{ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::{Arc, OnceLock}};
 
 use crate::base::types::{LlmResponse, Res};
 use crate::base::{
@@ -105,42 +105,14 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // Prepare allowed tools.
 
-        let tools = vec![
-            ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build()?),
-            ToolDefinition::Function(FunctionArgs::default()
-                .name("set_channel_directive")
-                .description("Set the channel directive for the bot.")
-                .parameters(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "message": {"type": "string", "description": "Anything you want to say about the user's message about updating the channel.  This message, and anything the user provides, will be stored for future reference.  This message will be provided to you in _every_ subsequent request.  You can use slack's markdown formatting here."},
-                    },
-                    "required": ["message"],
-                    "additionalProperties": false
-                }))
-                .build()?
-            ),
-            ToolDefinition::Function(FunctionArgs::default()
-                .name("update_channel_context")
-                .description("Update the context for the bot.  This is provided to you in _every_ subsequent request, but does not replace the channel directive, which is more important.")
-                .parameters(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "message": {"type": "string", "description": "Anything you want to say about the user's message about updating your understanding of the channel.  This is a subtle distinction, but it is important.  This will be provided to you upon every request."},
-                    },
-                    "required": ["message"],
-                    "additionalProperties": false
-                }))
-                .build()?
-            ),
-        ];
+        let tools = get_openai_tools();
 
         // Loop over requests until we get a "final" response.
         // For example, the LLM may give a "context needed" or "search needed" response.
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateResponseRequestArgs::default().max_output_tokens(2048u32).model(&self.model).input(input).tools(tools).build()?;
+            let request = CreateResponseRequestArgs::default().max_output_tokens(2048u32).model(&self.model).input(input).tools(tools.clone()).build()?;
             
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?;
@@ -159,13 +131,19 @@ pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmRe
 
     match &response.output {
         Some(output) => {
+            info!("LLM response has {} outputs.", output.len());
+
             for content in output {
                 match content {
                     OutputContent::Message(message) => {
+                        info!("LLM response has {} messages.", message.content.len());
+
                         for message_content in &message.content {
                             match message_content {
                                 Content::OutputText(text) => {
+                                    // TODO: Also look at the annotation for citations?
                                     let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
+
                                     result.push(parsed);
                                 },
                                 Content::Refusal(reason) => {
@@ -219,4 +197,42 @@ pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmRe
     }
 
     Ok(result)
+}
+
+// Statics.
+
+static OPENAI_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
+
+fn get_openai_tools() -> &'static Vec<ToolDefinition> {
+    OPENAI_TOOLS.get_or_init(|| {
+        vec![
+            ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap()),
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("set_channel_directive")
+                .description("Set the channel directive for the bot.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "Anything you want to say about the user's message about updating the channel.  This message, and anything the user provides, will be stored for future reference.  This message will be provided to you in _every_ subsequent request.  You can use slack's markdown formatting here.  This tool call does not share to the user, so you also need to generate a response to the user."},
+                    },
+                    "required": ["message"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("update_channel_context")
+                .description("Update the context for the bot.  This is provided to you in _every_ subsequent request, but does not replace the channel directive, which is more important.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "Anything you want to say about the user's message about updating your understanding of the channel.  This is a subtle distinction, but it is important.  This will be provided to you upon every request.  This tool call does not share to the user, so you also need to generate a response to the user."},
+                    },
+                    "required": ["message"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
+        ]
+    })
 }

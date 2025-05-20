@@ -143,7 +143,7 @@ impl GenericDbClient for SurrealDbClient {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, prompt))]
     async fn update_channel_prompt(&self, channel_id: &str, prompt: &str) -> Void {
         let _: Option<Channel> = self.update(("channel", channel_id)).merge(json!({ "channel_prompt": prompt })).await?;
 
