@@ -309,3 +309,34 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall::{mock, predicate::*};
+
+    mock! {
+        pub Chat {}
+
+        #[async_trait]
+        impl GenericChatClient for Chat {
+            fn bot_user_id(&self) -> &str;
+            async fn start(&self) -> Void;
+            async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+            async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
+            async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+        }
+    }
+
+    #[tokio::test]
+    async fn chat_client_delegates_send_message() {
+        let mut mock = MockChat::new();
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq("hi"))
+            .times(1)
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        client.send_message("C1", "t1", "hi").await.unwrap();
+    }
+}
