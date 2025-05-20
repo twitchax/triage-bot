@@ -331,10 +331,7 @@ mod tests {
     #[tokio::test]
     async fn chat_client_delegates_send_message() {
         let mut mock = MockChat::new();
-        mock.expect_send_message()
-            .with(eq("C1"), eq("t1"), eq("hi"))
-            .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        mock.expect_send_message().with(eq("C1"), eq("t1"), eq("hi")).times(1).returning(|_, _, _| Ok(()));
 
         let client = ChatClient { inner: Arc::new(mock) };
         client.send_message("C1", "t1", "hi").await.unwrap();

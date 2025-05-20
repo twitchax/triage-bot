@@ -17,12 +17,10 @@ pub enum LlmClassification {
 #[serde(tag = "type")]
 pub enum LlmResponse {
     // Responses.
-
     NoAction,
     ReplyToThread { thread_ts: String, classification: LlmClassification, message: String },
 
     // Tool calls.
-
     UpdateChannelDirective { message: String },
     UpdateContext { message: String },
 }

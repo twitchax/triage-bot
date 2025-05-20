@@ -19,7 +19,7 @@ fn default_openai_temperature() -> f32 {
 /// Configuration for the triage-bot application.
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    inner: Arc<ConfigInner>,
+    pub inner: Arc<ConfigInner>,
 }
 
 impl Deref for Config {

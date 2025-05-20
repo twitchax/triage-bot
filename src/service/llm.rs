@@ -1,6 +1,9 @@
 //! Thin wrapper around async-openai for OpenAI LLM calls.
 
-use std::{ops::Deref, sync::{Arc, OnceLock}};
+use std::{
+    ops::Deref,
+    sync::{Arc, OnceLock},
+};
 
 use crate::base::types::{LlmResponse, Res};
 use crate::base::{
@@ -9,11 +12,12 @@ use crate::base::{
 };
 use anyhow::Context;
 use async_openai::{
-    config::OpenAIConfig, types::{Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs}, Client
+    Client,
+    config::OpenAIConfig,
+    types::{Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs},
 };
 use async_trait::async_trait;
 use serde_json::Value;
-use serde_with::json;
 use tracing::{debug, info, instrument, warn};
 
 // Traits.
@@ -112,8 +116,14 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateResponseRequestArgs::default().max_output_tokens(2048u32).model(&self.model).input(input).tools(tools.clone()).build()?;
-            
+            let request = CreateResponseRequestArgs::default()
+                .max_output_tokens(2048u32)
+                .temperature(self.temperature)
+                .model(&self.model)
+                .input(input)
+                .tools(tools.clone())
+                .build()?;
+
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?;
 
@@ -145,41 +155,37 @@ pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmRe
                                     let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
 
                                     result.push(parsed);
-                                },
+                                }
                                 Content::Refusal(reason) => {
                                     return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
                                 }
                             }
                         }
                     }
-                    OutputContent::FunctionCall(function_call) => {
-                        match function_call.name.as_str() {
-                            "set_channel_directive" => {
-                                info!("Channel directive tool called ...");
+                    OutputContent::FunctionCall(function_call) => match function_call.name.as_str() {
+                        "set_channel_directive" => {
+                            info!("Channel directive tool called ...");
 
-                                let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                                let arguments = arguments.as_object()
-                                    .ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                                let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+                            let arguments: Value = serde_json::from_str(&function_call.arguments)?;
+                            let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
+                            let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
 
-                                result.push(LlmResponse::UpdateChannelDirective { message });
-                            }
-                            "update_channel_context" => {
-                                info!("Update context tool called ...");
-                                
-                                let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                                let arguments = arguments.as_object()
-                                    .ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                                let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
-
-                                result.push(LlmResponse::UpdateContext { message });
-                            }
-                            _ => {
-                                warn!("Unknown function call: {function_call:#?}");
-                                return Err(anyhow::anyhow!("Unknown function call."));
-                            }
+                            result.push(LlmResponse::UpdateChannelDirective { message });
                         }
-                    }
+                        "update_channel_context" => {
+                            info!("Update context tool called ...");
+
+                            let arguments: Value = serde_json::from_str(&function_call.arguments)?;
+                            let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
+                            let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+
+                            result.push(LlmResponse::UpdateContext { message });
+                        }
+                        _ => {
+                            warn!("Unknown function call: {function_call:#?}");
+                            return Err(anyhow::anyhow!("Unknown function call."));
+                        }
+                    },
                     OutputContent::WebSearchCall(web_search_call) => {
                         info!("Web search tool called: {web_search_call:#?}");
                     }
@@ -259,7 +265,7 @@ mod tests {
         mock.expect_generate_response()
             .with(eq("me"), eq("dir"), eq("ctx"), eq("msg"))
             .times(1)
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _, _| Ok(vec![]));
 
         let client = LlmClient { inner: Arc::new(mock) };
         client.generate_response("me", "dir", "ctx", "msg").await.unwrap();

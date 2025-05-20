@@ -10,13 +10,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::Surreal;
+#[cfg(test)]
+use surrealdb::engine::local::{Db as DbConnection, Mem};
 #[cfg(not(test))]
 use surrealdb::{
     engine::remote::ws::{Client as DbConnection, Ws},
     opt::auth::Root,
 };
-#[cfg(test)]
-use surrealdb::engine::local::{Db as DbConnection, Mem};
 use tracing::{info, instrument};
 
 // Traits.
@@ -126,7 +126,6 @@ impl SurrealDbClient {
     }
 }
 
-
 #[async_trait]
 impl GenericDbClient for SurrealDbClient {
     #[instrument(skip(self))]
@@ -168,7 +167,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn memory_channel_roundtrip() {
+    async fn test_create_channel() {
         let cfg = Config {
             inner: Arc::new(ConfigInner {
                 openai_api_key: String::new(),
@@ -187,7 +186,7 @@ mod tests {
 
         let client = SurrealDbClient::new(&cfg).await.unwrap();
         let channel = client.get_or_create_channel("C1").await.unwrap();
-        assert_eq!(channel.channel_prompt.contains("Channel prompt"), true);
+        assert!(channel.channel_prompt.contains("Channel prompt"));
 
         client.update_channel_prompt("C1", "new").await.unwrap();
         let updated = client.get_or_create_channel("C1").await.unwrap();
