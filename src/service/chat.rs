@@ -223,10 +223,12 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
                 return Ok(());
             }
 
-            interaction::message::handle_message(slack_message_event, user_state.db.clone(), user_state.llm.clone());
+            let channel_id = slack_message_event.origin.channel.as_ref().ok_or(anyhow::anyhow!("Failed to get channel ID"))?.0.to_owned();
+            interaction::chat_event::handle_chat_event(slack_message_event, channel_id, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
         }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
-            interaction::app_mention::handle_app_mention(slack_app_mention_event, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
+            let channel_id = slack_app_mention_event.channel.0.to_owned();
+            interaction::chat_event::handle_chat_event(slack_app_mention_event, channel_id, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
         }
         SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),
         SlackEventCallbackBody::ReactionAdded(slack_reaction_added_event) => todo!(),

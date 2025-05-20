@@ -1,6 +1,4 @@
-use chrono::format;
-use slack_morphism::events::SlackAppMentionEvent;
-use surrealdb::error;
+use serde::Serialize;
 use tracing::{error, info, instrument, warn, Instrument};
 
 use crate::{
@@ -9,10 +7,13 @@ use crate::{
 };
 
 #[instrument(skip_all)]
-pub fn handle_app_mention(event: SlackAppMentionEvent, db: DbClient, llm: LlmClient, chat: ChatClient) {
+pub fn handle_chat_event<E>(event: E, channel_id: String, db: DbClient, llm: LlmClient, chat: ChatClient)
+where
+    E: Serialize + Send + 'static,
+{
     tokio::spawn(async move {
         // Process the event.
-        let result = handle_app_mention_internal(event, &db, &llm, &chat).in_current_span().await;
+        let result = handle_chat_event_internal(event, channel_id, &db, &llm, &chat).in_current_span().await;
 
         // Log any errors.
         if let Err(err) = &result {
@@ -22,12 +23,13 @@ pub fn handle_app_mention(event: SlackAppMentionEvent, db: DbClient, llm: LlmCli
 }
 
 #[instrument(skip_all)]
-async fn handle_app_mention_internal(event: SlackAppMentionEvent, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void {
-    let channel_id = &event.channel.0;
-
+async fn handle_chat_event_internal<E>(event: E, channel_id: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
+where 
+    E: Serialize
+{
     // First, get the channel info from the database.
 
-    let channel = db.get_or_create_channel(channel_id).await?;
+    let channel = db.get_or_create_channel(&channel_id).await?;
     let channel_prompt = &channel.channel_prompt;
 
     // TODO: Maybe we can also have context about specific users that we would also look up?
@@ -49,7 +51,7 @@ async fn handle_app_mention_internal(event: SlackAppMentionEvent, db: &DbClient,
 
                 let message = format!("User message:\n\n{user_message}\n\nYour Notes:\n\n{message}");
 
-                db.update_channel_prompt(channel_id, &message).await?;
+                db.update_channel_prompt(&channel_id, &message).await?;
             },
             crate::base::types::LlmResponse::UpdateContext { message } => {
                 info!("Updating context ...");
@@ -71,8 +73,8 @@ async fn handle_app_mention_internal(event: SlackAppMentionEvent, db: &DbClient,
                     LlmClassification::Other => ":grey_question:",
                 };
 
-                chat.react_to_message(channel_id, thread_ts, emoji).await?;
-                chat.send_message(channel_id, thread_ts, message).await?;
+                chat.react_to_message(&channel_id, thread_ts, emoji).await?;
+                chat.send_message(&channel_id, thread_ts, message).await?;
             },
         }
     }

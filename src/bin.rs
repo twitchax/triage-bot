@@ -1,6 +1,7 @@
 //! Binary entry point for `triage-bot`.
 
 use clap::Parser;
+use tracing_subscriber::fmt::format::FmtSpan;
 use triage_bot::base::{config::Config, types::Void};
 
 /// Triage-bot – a Slack support channel triage helper.
@@ -34,6 +35,7 @@ async fn main() -> Void {
         .with_target(false)
         .with_thread_ids(false)
         .with_thread_names(false)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .with_max_level(level)
         .init();
 
