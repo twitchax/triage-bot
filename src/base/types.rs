@@ -16,8 +16,13 @@ pub enum LlmClassification {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum LlmResponse {
+    // Responses.
+
     NoAction,
+    ReplyToThread { thread_ts: String, classification: LlmClassification, message: String },
+
+    // Tool calls.
+
     UpdateChannelDirective { message: String },
     UpdateContext { message: String },
-    ReplyToThread { thread_ts: String, classification: LlmClassification, message: String },
 }
