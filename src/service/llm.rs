@@ -64,6 +64,7 @@ pub struct OpenAiLlmClient {
     system_prompt: String,
     mention_addendum_prompt: String,
     temperature: f32,
+    max_tokens: u32,
 }
 
 impl OpenAiLlmClient {
@@ -82,6 +83,7 @@ impl OpenAiLlmClient {
             system_prompt,
             mention_addendum_prompt,
             temperature: config.openai_temperature,
+            max_tokens: config.openai_max_tokens,
         }
     }
 }
@@ -117,7 +119,7 @@ impl GenericLlmClient for OpenAiLlmClient {
         #[allow(clippy::never_loop)]
         let result = loop {
             let request = CreateResponseRequestArgs::default()
-                .max_output_tokens(2048u32)
+                .max_output_tokens(self.max_tokens)
                 .temperature(self.temperature)
                 .model(&self.model)
                 .input(input)
