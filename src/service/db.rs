@@ -2,7 +2,10 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use crate::base::{config::Config, types::{Res, Void}};
+use crate::base::{
+    config::Config,
+    types::{Res, Void},
+};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -142,10 +145,7 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self))]
     async fn update_channel_prompt(&self, channel_id: &str, prompt: &str) -> Void {
-        let _: Option<Channel> = self
-            .update(("channel", channel_id))
-            .merge(json!({ "channel_prompt": prompt }))
-            .await?;
+        let _: Option<Channel> = self.update(("channel", channel_id)).merge(json!({ "channel_prompt": prompt })).await?;
 
         info!("Channel `{}` updated.", channel_id);
 

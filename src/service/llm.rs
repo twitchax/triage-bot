@@ -9,9 +9,9 @@ use crate::base::{
 };
 use anyhow::Context;
 use async_openai::{
-    config::OpenAIConfig, types::{
-        Content, CreateResponseRequestArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs
-    }, Client
+    Client,
+    config::OpenAIConfig,
+    types::{Content, CreateResponseRequestArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs},
 };
 use async_trait::async_trait;
 use tracing::{debug, instrument, warn};
@@ -90,30 +90,17 @@ impl GenericLlmClient for OpenAiLlmClient {
         debug!("Generating response with system prompt and user message");
 
         let mut input = ResponseInput::Items(vec![
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::System)
-                .content(self.system_prompt.clone())
-                .build()?),
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::System)
-                .content(self.mention_addendum_prompt.clone())
-                .build()?),
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::Developer)
-                .content(channel_directive.to_string())
-                .build()?),
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::Developer)
-                .content(format!("Your User ID: {self_id}"))
-                .build()?),
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::Developer)
-                .content(format!("Raw Thread Context:\n\n{thread_context}"))
-                .build()?),
-            InputItem::Message(InputMessageArgs::default()
-                .role(ResponsesRole::User)
-                .content(user_message.to_string())
-                .build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.system_prompt.clone()).build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(channel_directive.to_string()).build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your User ID: {self_id}")).build()?),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("Raw Thread Context:\n\n{thread_context}"))
+                    .build()?,
+            ),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
         ]);
 
         // Prepare allowed tools.
@@ -125,12 +112,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateResponseRequestArgs::default()
-                .max_output_tokens(2048u32)
-                .model(&self.model)
-                .input(input)
-                .tools(tools)
-                .build()?;
+            let request = CreateResponseRequestArgs::default().max_output_tokens(2048u32).model(&self.model).input(input).tools(tools).build()?;
 
             // TODO: Abstract some of this away into a function.
             let response = self.client.responses().create(request).await?;
@@ -145,21 +127,19 @@ impl GenericLlmClient for OpenAiLlmClient {
                             let message_content = message.content.first().ok_or(anyhow::anyhow!("No message content in response."))?;
 
                             match message_content {
-                                Content::OutputText(text) => {
-                                    text.text.clone()
-                                }
+                                Content::OutputText(text) => text.text.clone(),
                                 _ => {
                                     warn!("Unknown content: {message_content:#?}");
                                     return Err(anyhow::anyhow!("Unknown content type"));
                                 }
                             }
-                        },
+                        }
                         _ => {
                             warn!("Unknown output: {content:#?}");
                             return Err(anyhow::anyhow!("Unknown output type"));
                         }
                     }
-                },
+                }
                 None => {
                     warn!("No output in response.");
                     return Err(anyhow::anyhow!("No output in response."));

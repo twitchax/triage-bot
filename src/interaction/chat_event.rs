@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tracing::{error, info, instrument, warn, Instrument};
+use tracing::{Instrument, error, info, instrument, warn};
 
 use crate::{
     base::types::{LlmClassification, Void},
@@ -24,8 +24,8 @@ where
 
 #[instrument(skip_all)]
 async fn handle_chat_event_internal<E>(event: E, channel_id: String, thread_ts: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
-where 
-    E: Serialize
+where
+    E: Serialize,
 {
     // First, get the channel info from the database.
 
@@ -45,7 +45,7 @@ where
     // Take the proper action based on the response.
 
     info!("Received {} responses from LLM", responses.len());
-    
+
     for response in responses.iter() {
         match response {
             crate::base::types::LlmResponse::NoAction => warn!("No action taken."),
@@ -55,15 +55,15 @@ where
                 let message = format!("User message:\n\n{user_message}\n\nYour Notes:\n\n{message}");
 
                 db.update_channel_prompt(&channel_id, &message).await?;
-            },
+            }
             crate::base::types::LlmResponse::UpdateContext { message } => {
                 info!("Updating context ...");
 
                 let message = format!("User message:\n\n{user_message}\n\nYour Notes:\n\n{message}");
-                
+
                 // TODO: Update the context in the database.
                 error!("Updating context is not yet implemented.");
-            },
+            }
             crate::base::types::LlmResponse::ReplyToThread { thread_ts, classification, message } => {
                 info!("Replying to thread ...");
 
@@ -78,7 +78,7 @@ where
 
                 let _ = chat.react_to_message(&channel_id, thread_ts, emoji).await;
                 chat.send_message(&channel_id, thread_ts, message).await?;
-            },
+            }
         }
     }
 

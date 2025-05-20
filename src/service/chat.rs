@@ -10,7 +10,10 @@ use crate::{
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use slack_morphism::{errors::{SlackClientApiError, SlackClientError}, prelude::*};
+use slack_morphism::{
+    errors::{SlackClientApiError, SlackClientError},
+    prelude::*,
+};
 use tracing::{info, instrument, warn};
 
 use std::{ops::Deref, sync::Arc};
@@ -179,7 +182,10 @@ impl GenericChatClient for SlackChatClient {
     async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void {
         let message = SlackMessageContent::new().with_text(text.to_string());
 
-        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message).with_as_user(true).with_thread_ts(SlackTs(thread_ts.to_string())).with_link_names(true);
+        let request = SlackApiChatPostMessageRequest::new(SlackChannelId(channel_id.to_string()), message)
+            .with_as_user(true)
+            .with_thread_ts(SlackTs(thread_ts.to_string()))
+            .with_link_names(true);
 
         let session = self.client.open_session(&self.bot_token);
 
@@ -190,7 +196,11 @@ impl GenericChatClient for SlackChatClient {
 
     #[instrument(skip(self))]
     async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void {
-        let request = SlackApiReactionsAddRequest { channel: SlackChannelId(channel_id.to_string()), name: SlackReactionName(emoji.to_string()), timestamp: SlackTs(thread_ts.to_string()) };
+        let request = SlackApiReactionsAddRequest {
+            channel: SlackChannelId(channel_id.to_string()),
+            name: SlackReactionName(emoji.to_string()),
+            timestamp: SlackTs(thread_ts.to_string()),
+        };
 
         let session = self.client.open_session(&self.bot_token);
 
@@ -206,7 +216,10 @@ impl GenericChatClient for SlackChatClient {
 
         let response = session.conversations_replies(&request).await;
 
-        let response = if let Err(e) = &response && let SlackClientError::ApiError(ae) = e && ae.code == "thread_not_found" {
+        let response = if let Err(e) = &response
+            && let SlackClientError::ApiError(ae) = e
+            && ae.code == "thread_not_found"
+        {
             // If the thread is not found (due to this being a top-level message), we can just return an empty string.
             return Ok("".to_string());
         } else {
@@ -261,14 +274,28 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
 
             let channel_id = slack_message_event.origin.channel.as_ref().ok_or(anyhow::anyhow!("Failed to get channel ID"))?.0.to_owned();
             let thread_ts = slack_message_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;
-            interaction::chat_event::handle_chat_event(slack_message_event, channel_id, thread_ts, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
+            interaction::chat_event::handle_chat_event(
+                slack_message_event,
+                channel_id,
+                thread_ts,
+                user_state.db.clone(),
+                user_state.llm.clone(),
+                user_state.chat_client.clone(),
+            );
         }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
             // Check to see if this is a thread message.  If so, we are going to want to provide the entire thread context to the LLM.
 
             let channel_id = slack_app_mention_event.channel.0.to_owned();
             let thread_ts = slack_app_mention_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;
-            interaction::chat_event::handle_chat_event(slack_app_mention_event, channel_id, thread_ts, user_state.db.clone(), user_state.llm.clone(), user_state.chat_client.clone());
+            interaction::chat_event::handle_chat_event(
+                slack_app_mention_event,
+                channel_id,
+                thread_ts,
+                user_state.db.clone(),
+                user_state.llm.clone(),
+                user_state.chat_client.clone(),
+            );
         }
         //SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),
         //SlackEventCallbackBody::ReactionAdded(slack_reaction_added_event) => todo!(),
