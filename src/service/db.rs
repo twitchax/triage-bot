@@ -89,7 +89,7 @@ impl SurrealDbClient {
     ///
     /// This creates an in-memory database instance. For production, you would
     /// want to connect to a persistent database.
-    #[instrument(skip_all)]
+    #[instrument(name = "SurrealDbClient::new", skip_all)]
     pub async fn new(config: &Config) -> Res<Self> {
         // Create an in-memory database
         let db = Surreal::new::<Ws>(&config.db_endpoint).await?;

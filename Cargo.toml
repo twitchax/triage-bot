@@ -28,7 +28,7 @@ hyper = { version = "1", features = ["client"] }
 hyper-util = { version = "0.1" }
 hyper-rustls = { version = "0.27" }
 rustls = { version = "0.23" }
-async-openai = "0.28"
+async-openai = { git = "https://github.com/64bit/async-openai", rev = "67d4a8515ccd40e5258fdc255027a1edafa9ca90" }
 config = { version = "0.15", features = ["toml"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

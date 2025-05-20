@@ -29,6 +29,7 @@ async fn main() -> Void {
         _ => tracing::Level::TRACE,
     };
     tracing_subscriber::fmt()
+        .without_time()
         .with_ansi(true)
         .with_level(true)
         .with_file(false)

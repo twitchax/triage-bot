@@ -28,7 +28,7 @@ pub struct Runtime {
 
 impl Runtime {
     /// Create a new runtime instance.
-    #[instrument(skip_all)]
+    #[instrument(name = "Runtime::new", skip_all)]
     pub async fn new(config: Config) -> Res<Self> {
         // Initialize the database.
         let db = DbClient::surreal(&config).await?;

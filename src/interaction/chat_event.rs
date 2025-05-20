@@ -7,13 +7,13 @@ use crate::{
 };
 
 #[instrument(skip_all)]
-pub fn handle_chat_event<E>(event: E, channel_id: String, db: DbClient, llm: LlmClient, chat: ChatClient)
+pub fn handle_chat_event<E>(event: E, channel_id: String, thread_ts: String, db: DbClient, llm: LlmClient, chat: ChatClient)
 where
     E: Serialize + Send + 'static,
 {
     tokio::spawn(async move {
         // Process the event.
-        let result = handle_chat_event_internal(event, channel_id, &db, &llm, &chat).in_current_span().await;
+        let result = handle_chat_event_internal(event, channel_id, thread_ts, &db, &llm, &chat).in_current_span().await;
 
         // Log any errors.
         if let Err(err) = &result {
@@ -23,7 +23,7 @@ where
 }
 
 #[instrument(skip_all)]
-async fn handle_chat_event_internal<E>(event: E, channel_id: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
+async fn handle_chat_event_internal<E>(event: E, channel_id: String, thread_ts: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
 where 
     E: Serialize
 {
@@ -34,10 +34,13 @@ where
 
     // TODO: Maybe we can also have context about specific users that we would also look up?
 
+    // Get the thread context from the event.
+    let thread_context = chat.get_thread_context(&channel_id, &thread_ts).await?;
+
     // Call the LLM with the channel prompt and the message text.
 
     let user_message = serde_json::to_string(&event).unwrap();
-    let responses = llm.generate_response(channel_prompt, &user_message).await?;
+    let responses = llm.generate_response(chat.bot_user_id(), channel_prompt, &thread_context, &user_message).await?;
 
     // Take the proper action based on the response.
 
@@ -66,14 +69,14 @@ where
 
                 // Set the emoji.
                 let emoji = match classification {
-                    LlmClassification::Question => ":question:",
-                    LlmClassification::Feature => ":bulb:",
-                    LlmClassification::Bug => ":bug:",
-                    LlmClassification::Incident => ":warning:",
-                    LlmClassification::Other => ":grey_question:",
+                    LlmClassification::Question => "question",
+                    LlmClassification::Feature => "bulb",
+                    LlmClassification::Bug => "bug",
+                    LlmClassification::Incident => "warning",
+                    LlmClassification::Other => "grey_question",
                 };
 
-                chat.react_to_message(&channel_id, thread_ts, emoji).await?;
+                let _ = chat.react_to_message(&channel_id, thread_ts, emoji).await;
                 chat.send_message(&channel_id, thread_ts, message).await?;
             },
         }

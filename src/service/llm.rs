@@ -7,16 +7,14 @@ use crate::base::{
     config::Config,
     prompts::{get_mention_addendum, get_system_prompt},
 };
+use anyhow::Context;
 use async_openai::{
-    Client,
-    config::OpenAIConfig,
-    types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage, ChatCompletionRequestSystemMessageContent, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
-        CreateChatCompletionRequestArgs,
-    },
+    config::OpenAIConfig, types::{
+        Content, CreateResponseRequestArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs
+    }, Client
 };
 use async_trait::async_trait;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 // Traits.
 
@@ -24,7 +22,7 @@ use tracing::{debug, instrument};
 #[async_trait]
 pub trait GenericLlmClient {
     /// Generate a response from a static system prompt and user message.
-    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+    async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
 }
 
 // Structs.
@@ -65,6 +63,8 @@ pub struct OpenAiLlmClient {
 }
 
 impl OpenAiLlmClient {
+    /// Create a new OpenAI LLM client.
+    #[instrument(name = "OpenAiLlmClient::new", skip_all)]
     pub fn new(config: &Config) -> Self {
         let cfg = OpenAIConfig::new().with_api_key(config.openai_api_key.clone());
         let model = config.openai_model.clone();
@@ -85,41 +85,89 @@ impl OpenAiLlmClient {
 #[async_trait]
 impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
-    #[instrument(skip(self))]
-    async fn generate_response(&self, channel_prompt: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
+    #[instrument(skip(self, self_id, channel_directive, thread_context))]
+    async fn generate_response(&self, self_id: &str, channel_directive: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
         debug!("Generating response with system prompt and user message");
 
-        let mut messages = vec![
-            ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-                content: ChatCompletionRequestSystemMessageContent::Text(self.system_prompt.clone()),
-                name: Some("System".to_string()),
-            }),
-            ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-                content: ChatCompletionRequestSystemMessageContent::Text(self.mention_addendum_prompt.clone()),
-                name: Some("System".to_string()),
-            }),
-            ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-                content: ChatCompletionRequestSystemMessageContent::Text(channel_prompt.to_string()),
-                name: Some("ChannelAdmin".to_string()),
-            }),
-            ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-                content: ChatCompletionRequestUserMessageContent::Text(user_message.to_string()),
-                name: Some("User".to_string()),
-            }),
-        ];
+        let mut input = ResponseInput::Items(vec![
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::System)
+                .content(self.system_prompt.clone())
+                .build()?),
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::System)
+                .content(self.mention_addendum_prompt.clone())
+                .build()?),
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::Developer)
+                .content(channel_directive.to_string())
+                .build()?),
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::Developer)
+                .content(format!("Your User ID: {self_id}"))
+                .build()?),
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::Developer)
+                .content(format!("Raw Thread Context:\n\n{thread_context}"))
+                .build()?),
+            InputItem::Message(InputMessageArgs::default()
+                .role(ResponsesRole::User)
+                .content(user_message.to_string())
+                .build()?),
+        ]);
+
+        // Prepare allowed tools.
+
+        let tools = vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build()?)];
 
         // Loop over requests until we get a "final" response.
         // For example, the LLM may give a "context needed" or "search needed" response.
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateChatCompletionRequestArgs::default().model(&self.model).messages(messages).temperature(self.temperature).build()?;
+            let request = CreateResponseRequestArgs::default()
+                .max_output_tokens(2048u32)
+                .model(&self.model)
+                .input(input)
+                .tools(tools)
+                .build()?;
 
-            let response = self.client.chat().create(request).await?;
-            let content = response.choices.first().and_then(|choice| choice.message.content.clone()).unwrap_or_default();
+            // TODO: Abstract some of this away into a function.
+            let response = self.client.responses().create(request).await?;
 
-            // deserialize the response to the `LlmResult` type.
-            let result: Vec<LlmResponse> = serde_json::from_str(&content)?;
+            let content = String::new();
+            let content = match response.output {
+                Some(output) => {
+                    let content = output.first().ok_or(anyhow::anyhow!("No output in response."))?;
+
+                    match content {
+                        OutputContent::Message(message) => {
+                            let message_content = message.content.first().ok_or(anyhow::anyhow!("No message content in response."))?;
+
+                            match message_content {
+                                Content::OutputText(text) => {
+                                    text.text.clone()
+                                }
+                                _ => {
+                                    warn!("Unknown content: {message_content:#?}");
+                                    return Err(anyhow::anyhow!("Unknown content type"));
+                                }
+                            }
+                        },
+                        _ => {
+                            warn!("Unknown output: {content:#?}");
+                            return Err(anyhow::anyhow!("Unknown output type"));
+                        }
+                    }
+                },
+                None => {
+                    warn!("No output in response.");
+                    return Err(anyhow::anyhow!("No output in response."));
+                }
+            };
+
+            // Deserialize the response to the `LlmResult` type.
+            let result: Vec<LlmResponse> = serde_json::from_str(&content).context(format!("Failed to deserialize LLM response: {content:#?}"))?;
 
             // This may change, but for now, always break after one message.
             break result;
