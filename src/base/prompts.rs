@@ -40,6 +40,8 @@ You are provided with tools: internet access, setting the channel directive, and
 
 ### No Action
 
+REMEMBER, DO NOT WRAP THIS RESULT IN A CODE BLOCK.  JUST THE JSON.
+
 This is the default action.  You should return this if you are not able to help, or if you are not sure what to do.  This will be the default action if you do not return anything.
 
 ```json
@@ -49,6 +51,8 @@ This is the default action.  You should return this if you are not able to help,
 ```
 
 ### Reply To Thread
+
+REMEMBER, DO NOT WRAP THIS RESULT IN A CODE BLOCK.  JUST THE JSON.
 
 Respond with this when you believe the user has asked you a question, added a feature idea, flagged a bug, or identified a possible incident.  This is the most common case, and will be used for most messages.  This will be provided to you upon every request.
 
@@ -63,7 +67,7 @@ Respond with this when you believe the user has asked you a question, added a fe
 
 ## Input From User
 
-You will be provided with the raw Rust `Debug` output for the `SlackMessageEvent`.
+You will be provided with the raw JSON output for the event data (usually `SlackMessageEvent`).
 
 "#####;
 
@@ -75,7 +79,7 @@ Sometimes, you will be @-mentioned (as a `SlackAppMentionEvent`) to help with a 
 
 Sometimes, you will be @-mentioned, and the intent will be to _update_ your understanding of the channel in which you operate.  In this case, you should return a result that indicates that you are updating your understanding of the channel.  You should also update your understanding of the channel, and return a result that indicates that you are doing so.  The application server where you are hosted will store these messages for your future reference.
 
-As shown above, when you want to update your context, please user the `UpdateContext` result.  If you think the message constitutes the user asking you to _overwrite_ your channel directive (provided to you below), please use the `UpdateChannelDirective` result.  This is a subtle distinction, but it is important.  If you are not sure, please ask clarifying questions.
+As shown above, when you want to update your context, please user the update context tool.  If you think the message constitutes the user asking you to _overwrite_ your channel directive (provided to you below), please use the set channel directive tool.  This is a subtle distinction, but it is important.  If you are not sure, please ask clarifying questions.
 "#####;
 
 /// Get the system prompt, using the config override if provided.
