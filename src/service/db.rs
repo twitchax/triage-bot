@@ -9,11 +9,14 @@ use crate::base::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use surrealdb::Surreal;
+#[cfg(not(test))]
 use surrealdb::{
-    Surreal,
-    engine::remote::ws::{Client, Ws},
+    engine::remote::ws::{Client as DbConnection, Ws},
     opt::auth::Root,
 };
+#[cfg(test)]
+use surrealdb::engine::local::{Db as DbConnection, Mem};
 use tracing::{info, instrument};
 
 // Traits.
@@ -76,11 +79,11 @@ pub struct User {
 
 /// Database client for SurrealDB.
 pub struct SurrealDbClient {
-    db: Surreal<Client>,
+    db: Surreal<DbConnection>,
 }
 
 impl Deref for SurrealDbClient {
-    type Target = Surreal<Client>;
+    type Target = Surreal<DbConnection>;
 
     fn deref(&self) -> &Self::Target {
         &self.db
@@ -94,10 +97,14 @@ impl SurrealDbClient {
     /// want to connect to a persistent database.
     #[instrument(name = "SurrealDbClient::new", skip_all)]
     pub async fn new(config: &Config) -> Res<Self> {
-        // Create an in-memory database
+        // Create the database connection
+        #[cfg(not(test))]
         let db = Surreal::new::<Ws>(&config.db_endpoint).await?;
+        #[cfg(test)]
+        let db = Surreal::new::<Mem>(()).await?;
 
         // Authenticate with the database using the provided username and password.
+        #[cfg(not(test))]
         db.signin(Root {
             username: &config.db_username,
             password: &config.db_password,
@@ -118,6 +125,7 @@ impl SurrealDbClient {
         Ok(Self { db })
     }
 }
+
 
 #[async_trait]
 impl GenericDbClient for SurrealDbClient {
@@ -150,5 +158,39 @@ impl GenericDbClient for SurrealDbClient {
         info!("Channel `{}` updated.", channel_id);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::config::{Config, ConfigInner};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn memory_channel_roundtrip() {
+        let cfg = Config {
+            inner: Arc::new(ConfigInner {
+                openai_api_key: String::new(),
+                openai_model: "test".to_string(),
+                system_prompt: None,
+                mention_addendum_prompt: None,
+                openai_temperature: 0.0,
+                slack_app_token: String::new(),
+                slack_bot_token: String::new(),
+                slack_signing_secret: String::new(),
+                db_endpoint: String::new(),
+                db_username: String::new(),
+                db_password: String::new(),
+            }),
+        };
+
+        let client = SurrealDbClient::new(&cfg).await.unwrap();
+        let channel = client.get_or_create_channel("C1").await.unwrap();
+        assert_eq!(channel.channel_prompt.contains("Channel prompt"), true);
+
+        client.update_channel_prompt("C1", "new").await.unwrap();
+        let updated = client.get_or_create_channel("C1").await.unwrap();
+        assert_eq!(updated.channel_prompt, "new");
     }
 }

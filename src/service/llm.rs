@@ -156,3 +156,30 @@ impl GenericLlmClient for OpenAiLlmClient {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall::{mock, predicate::*};
+
+    mock! {
+        pub Llm {}
+
+        #[async_trait]
+        impl GenericLlmClient for Llm {
+            async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+        }
+    }
+
+    #[tokio::test]
+    async fn llm_client_delegates_generate_response() {
+        let mut mock = MockLlm::new();
+        mock.expect_generate_response()
+            .with(eq("me"), eq("dir"), eq("ctx"), eq("msg"))
+            .times(1)
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let client = LlmClient { inner: Arc::new(mock) };
+        client.generate_response("me", "dir", "ctx", "msg").await.unwrap();
+    }
+}
