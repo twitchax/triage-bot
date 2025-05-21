@@ -10,7 +10,7 @@ jobs:
   copilot:
     runs-on: ubuntu-latest
     env:
-      COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: cdn.fwupd.org,index.crates.io,static.rust-lang.org,docs.rs
+      COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: index.crates.io,static.rust-lang.org,docs.rs
     steps:
       - uses: actions/checkout@v4
 
@@ -35,11 +35,10 @@ jobs:
 
       - name: Setup build environment
         run: |
-          echo "CARGO_PROFILE_RELEASE_LTO=true" >> $GITHUB_ENV
           echo "RUSTFLAGS=-C linker=clang -C link-arg=-fuse-ld=mold" >> $GITHUB_ENV
 
       - name: Build project
-        run: cargo build --release -j 64
+        run: cargo build --release
 
       - name: Run tests
         run: cargo nextest run
