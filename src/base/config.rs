@@ -8,7 +8,7 @@ use super::types::Res;
 
 /// Default OpenAI model to use
 fn default_openai_model() -> String {
-    "gpt-4.1".to_string()
+    "o3-mini".to_string()
 }
 
 /// Default sampling temperature for OpenAI model

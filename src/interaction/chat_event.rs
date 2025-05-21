@@ -3,7 +3,11 @@ use tracing::{Instrument, error, info, instrument, warn};
 
 use crate::{
     base::types::{LlmClassification, Void},
-    service::{chat::ChatClient, db::DbClient, llm::LlmClient},
+    service::{
+        chat::ChatClient,
+        db::{DbClient, LlmContext},
+        llm::LlmClient,
+    },
 };
 
 #[instrument(skip_all)]
@@ -30,7 +34,7 @@ where
     // First, get the channel info from the database.
 
     let channel = db.get_or_create_channel(&channel_id).await?;
-    let channel_prompt = &channel.channel_prompt;
+    let channel_directive = &channel.channel_directive;
 
     // TODO: Maybe we can also have context about specific users that we would also look up?
 
@@ -40,29 +44,38 @@ where
     // Call the LLM with the channel prompt and the message text.
 
     let user_message = serde_json::to_string(&event).unwrap();
-    let responses = llm.generate_response(chat.bot_user_id(), channel_prompt, &thread_context, &user_message).await?;
+    let responses = llm
+        .generate_response(chat.bot_user_id(), &serde_json::to_string(&channel_directive)?, &thread_context, &user_message)
+        .await?;
 
     // Take the proper action based on the response.
 
     info!("Received {} responses from LLM", responses.len());
 
-    for response in responses.iter() {
+    for response in responses {
         match response {
             crate::base::types::LlmResponse::NoAction => warn!("No action taken."),
             crate::base::types::LlmResponse::UpdateChannelDirective { message } => {
                 info!("Updating channel directive ...");
 
-                let message = format!("User message:\n\n{user_message}\n\nYour Notes:\n\n{message}");
+                let directive = LlmContext {
+                    id: None,
+                    user_message: serde_json::to_value(&event)?,
+                    your_notes: message,
+                };
 
-                db.update_channel_prompt(&channel_id, &message).await?;
+                db.update_channel_directive(&channel_id, &directive).await?;
             }
             crate::base::types::LlmResponse::UpdateContext { message } => {
                 info!("Updating context ...");
 
-                let message = format!("User message:\n\n{user_message}\n\nYour Notes:\n\n{message}");
+                let context = LlmContext {
+                    id: None,
+                    user_message: serde_json::to_value(&event)?,
+                    your_notes: message,
+                };
 
-                // TODO: Update the context in the database.
-                error!("Updating context is not yet implemented.");
+                db.add_channel_context(&channel_id, &context).await?;
             }
             crate::base::types::LlmResponse::ReplyToThread { thread_ts, classification, message } => {
                 info!("Replying to thread ...");
@@ -76,8 +89,8 @@ where
                     LlmClassification::Other => "grey_question",
                 };
 
-                let _ = chat.react_to_message(&channel_id, thread_ts, emoji).await;
-                chat.send_message(&channel_id, thread_ts, message).await?;
+                let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
+                chat.send_message(&channel_id, &thread_ts, &message).await?;
             }
         }
     }

@@ -95,7 +95,7 @@ impl GenericLlmClient for OpenAiLlmClient {
     async fn generate_response(&self, self_id: &str, channel_directive: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
         debug!("Generating response with system prompt and user message");
 
-        let mut input = ResponseInput::Items(vec![
+        let input = ResponseInput::Items(vec![
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.system_prompt.clone()).build()?),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(channel_directive.to_string()).build()?),
@@ -128,7 +128,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?;
-
+            
             // This may change, but for now, always break after one message.
             break result;
         };

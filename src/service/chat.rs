@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use slack_morphism::{
-    errors::{SlackClientApiError, SlackClientError},
+    errors::SlackClientError,
     prelude::*,
 };
 use tracing::{info, instrument, warn};
@@ -23,7 +23,7 @@ use super::{db::DbClient, llm::LlmClient};
 // Type aliases.
 
 type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
-type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
+//type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 
 // Traits.
 
