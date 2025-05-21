@@ -48,6 +48,10 @@ jobs:
         with:
           toolchain: nightly-2025-05-14
       - uses: Swatinem/rust-cache@v2
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
       - run: |
           CARGO_PROFILE_RELEASE_LTO=true \
           RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold" \
