@@ -8,6 +8,10 @@
 - Cleanup big methods (LLM completions should split out tool creation, etc.).
 - Improve documentation.
 
+## Cool Ideas
+
+- Have multiple agents: essentially, have a `gpt-4.1` agent (with its own prompt) that calls tools for context, and prepares a "report" for a reasoning model like `o3` to consume (with its own prompt).
+
 ## Fly Deploy Notes
 
 ```bash

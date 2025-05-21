@@ -26,7 +26,7 @@ use tracing::{debug, info, instrument, warn};
 #[async_trait]
 pub trait GenericLlmClient {
     /// Generate a response from a static system prompt and user message.
-    async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+    async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
 }
 
 // Structs.
@@ -92,13 +92,11 @@ impl OpenAiLlmClient {
 impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
-    async fn generate_response(&self, self_id: &str, channel_directive: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
-        debug!("Generating response with system prompt and user message");
-
+    async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
         let input = ResponseInput::Items(vec![
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.system_prompt.clone()).build()?),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(channel_directive.to_string()).build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your Channel Directive:\n\n{channel_directive}")).build()?),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your Channel Context:\n\n{channel_context}")).build()?),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your User ID: {self_id}")).build()?),
             InputItem::Message(
                 InputMessageArgs::default()
@@ -122,13 +120,15 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .max_output_tokens(self.max_tokens)
                 .temperature(self.temperature)
                 .model(&self.model)
-                .input(input)
+                .instructions(self.system_prompt.clone())
                 .tools(tools.clone())
+                .input(input)
+                // TODO: Add a "text" option here which can provide the JSON schema (see https://platform.openai.com/docs/api-reference/responses/get).
                 .build()?;
 
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?;
-            
+
             // This may change, but for now, always break after one message.
             break result;
         };
@@ -153,7 +153,13 @@ pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmRe
                         for message_content in &message.content {
                             match message_content {
                                 Content::OutputText(text) => {
-                                    // TODO: Also look at the annotation for citations?
+                                    // TODO: Handle annotations.
+                                    if text.annotations.is_empty() {
+                                        info!("LLM response has no annotations.");
+                                    } else {
+                                        info!("LLM response has {} annotations.", text.annotations.len());
+                                    }
+
                                     let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
 
                                     result.push(parsed);
@@ -217,7 +223,7 @@ fn get_openai_tools() -> &'static Vec<ToolDefinition> {
             ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap()),
             ToolDefinition::Function(FunctionArgs::default()
                 .name("set_channel_directive")
-                .description("Set the channel directive for the bot.")
+                .description("Set the channel directive for the bot.  You should only call this tool if the user @-mentions you, and says something like \"please update my channel directive\".  This is a subtle distinction, but it is important.  99% of the time, the user is asking you to reply, and this tool should not be called.  This will be provided to you in _every_ subsequent request.")
                 .parameters(serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -230,7 +236,7 @@ fn get_openai_tools() -> &'static Vec<ToolDefinition> {
             ),
             ToolDefinition::Function(FunctionArgs::default()
                 .name("update_channel_context")
-                .description("Update the context for the bot.  This is provided to you in _every_ subsequent request, but does not replace the channel directive, which is more important.")
+                .description("Update the context for the bot.  You should only call this tool if the user @-mentions you, and says something like \"please update my channel context\" or \"please remember that ...\".  This is a subtle distinction, but it is important.  99% of the time, the user is asking you to reply, and this tool should not be called.  This will be provided to you in _every_ subsequent request.")
                 .parameters(serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -257,7 +263,7 @@ mod tests {
 
         #[async_trait]
         impl GenericLlmClient for Llm {
-            async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+            async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
         }
     }
 
@@ -265,11 +271,11 @@ mod tests {
     async fn llm_client_delegates_generate_response() {
         let mut mock = MockLlm::new();
         mock.expect_generate_response()
-            .with(eq("me"), eq("dir"), eq("ctx"), eq("msg"))
+            .with(eq("me"), eq("dir"), eq("ctx"), eq("thread"), eq("msg"))
             .times(1)
-            .returning(|_, _, _, _| Ok(vec![]));
+            .returning(|_, _, _, _, _| Ok(vec![]));
 
         let client = LlmClient { inner: Arc::new(mock) };
-        client.generate_response("me", "dir", "ctx", "msg").await.unwrap();
+        client.generate_response("me", "dir", "ctx", "thread", "msg").await.unwrap();
     }
 }
