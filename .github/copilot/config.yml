@@ -1,0 +1,19 @@
+# GitHub Copilot configuration
+
+# Enabled domains for firewall allowlist
+allowed_domains:
+  - index.crates.io
+  - static.rust-lang.org
+  - docs.rs
+
+# Build instructions
+build:
+  command: cargo build
+
+# Test instructions  
+test:
+  command: cargo nextest run
+
+# Use these environment variables during Copilot sessions
+environment:
+  RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold"
