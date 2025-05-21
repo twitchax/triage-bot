@@ -6,13 +6,13 @@ use crate::base::{
     config::Config,
     types::{Res, Void},
 };
-use anyhow::anyhow;
+use anyhow::{Ok, anyhow};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use surrealdb::Surreal;
 #[cfg(test)]
 use surrealdb::engine::local::{Db as DbConnection, Mem};
+use surrealdb::{RecordId, Surreal};
 #[cfg(not(test))]
 use surrealdb::{
     engine::remote::ws::{Client as DbConnection, Ws},
@@ -31,6 +31,8 @@ pub trait GenericDbClient {
     async fn update_channel_directive(&self, channel_id: &str, directive: &LlmContext) -> Res<()>;
     /// Adds a context JSON to the channel via a `has_context` edge.
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()>;
+    /// Gets additional context for the channel.
+    async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>>;
 }
 
 /// Database client for triage-bot.
@@ -65,7 +67,7 @@ impl DbClient {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LlmContext {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<surrealdb::sql::Thing>,
+    pub id: Option<RecordId>,
     pub user_message: Value,
     pub your_notes: String,
 }
@@ -74,7 +76,7 @@ pub struct LlmContext {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<surrealdb::sql::Thing>,
+    pub id: Option<RecordId>,
     pub channel_directive: LlmContext,
 }
 
@@ -122,7 +124,7 @@ impl SurrealDbClient {
 
         // Schema for contexts.
         db.query("DEFINE TABLE context SCHEMAFULL").await?;
-        db.query("DEFINE FIELD user_message ON context TYPE object;").await?;
+        db.query("DEFINE FIELD user_message ON context FLEXIBLE TYPE object;").await?;
         db.query("DEFINE FIELD your_notes ON context TYPE string;").await?;
 
         // Schema for list of channels that the bot has been "added to" (@-mentioned).
@@ -179,17 +181,34 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self, context))]
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()> {
-        let query = r#"
-            RELATE channel:$channel_id
-            ->has_context
-            ->(CREATE context CONTENT $context)
-        "#;
-
-        self.query(query).bind(("channel_id", channel_id.to_string())).bind(("context", context.clone())).await?;
+        let _ = self
+            .db
+            .query("BEGIN TRANSACTION;")
+            .query("LET $channel = type::thing('channel', $channel_id);")
+            .query("LET $context = (CREATE context CONTENT $context_content).id;")
+            .query("RELATE $channel->has_context->$context;")
+            .query("COMMIT;")
+            .bind(("context_content", context.clone()))
+            .bind(("channel_id", channel_id.to_string()))
+            .await?;
 
         info!("Added context for channel `{}`.", channel_id);
 
         Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>> {
+        let context: Vec<LlmContext> = self
+            .db
+            .query("SELECT * FROM type::thing('channel', $channel_id)->has_context->context;")
+            .bind(("channel_id", channel_id.to_string()))
+            .await?
+            .take(0)?;
+
+        info!("Retrieved context for channel `{}`.", channel_id);
+
+        Ok(context)
     }
 }
 

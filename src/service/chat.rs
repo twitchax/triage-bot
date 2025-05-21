@@ -10,10 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use slack_morphism::{
-    errors::SlackClientError,
-    prelude::*,
-};
+use slack_morphism::{errors::SlackClientError, prelude::*};
 use tracing::{info, instrument, warn};
 
 use std::{ops::Deref, sync::Arc};
@@ -268,6 +265,8 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
 
     match event {
         SlackEventCallbackBody::Message(slack_message_event) => {
+            info!("Received message event ...");
+
             // If the message @mentions the bot, skip, and let the app mention handler take care of it.
             let text = slack_message_event.content.as_ref().map(|c| c.text.as_deref()).unwrap_or_default().unwrap_or_default();
             if text.contains(&user_state.bot_user_id) {
@@ -293,7 +292,7 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
             );
         }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
-            // Check to see if this is a thread message.  If so, we are going to want to provide the entire thread context to the LLM.
+            info!("Received app mention event ...");
 
             let channel_id = slack_app_mention_event.channel.0.to_owned();
             let thread_ts = slack_app_mention_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;

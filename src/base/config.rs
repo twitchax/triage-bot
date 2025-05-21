@@ -8,7 +8,7 @@ use super::types::Res;
 
 /// Default OpenAI model to use
 fn default_openai_model() -> String {
-    "o3-mini".to_string()
+    "gpt-4.1".to_string()
 }
 
 /// Default sampling temperature for OpenAI model
@@ -18,7 +18,7 @@ fn default_openai_temperature() -> f32 {
 
 /// Default max output tokens for OpenAI model
 fn default_openai_max_tokens() -> u32 {
-    2048
+    65536
 }
 
 /// Configuration for the triage-bot application.

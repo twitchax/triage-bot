@@ -1,10 +1,6 @@
 ## TODO
 
-- Change "update channel directive" and "update context" to MCP tools.
-- Add unit tests (likely use `mockall` for clients).
-- Add CI build of binary.
-- Add code coverage in CI.
-- Cleanup big methods (LLM completions should split out tool creation, etc.).
+- Add better unit tests (likely use `mockall` for clients).
 - Improve documentation.
 
 ## Integration Testing
@@ -24,6 +20,10 @@ To run a specific integration test:
 ```bash
 cargo test --test integration test_db_integration
 ```
+
+## Cool Ideas
+
+- Have multiple agents: essentially, have a `gpt-4.1` agent (with its own prompt) that calls tools for context, and prepares a "report" for a reasoning model like `o3` to consume (with its own prompt).
 
 ## Fly Deploy Notes
 

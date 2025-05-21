@@ -14,11 +14,14 @@ use anyhow::Context;
 use async_openai::{
     Client,
     config::OpenAIConfig,
-    types::{Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseInput, ResponsesRole, ToolDefinition, WebSearchPreviewArgs},
+    types::{
+        Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseFormat, ResponseFormatJsonSchema, ResponseInput, ResponsesRole,
+        TextConfig, TextResponseFormat, ToolDefinition, WebSearchPreviewArgs,
+    },
 };
 use async_trait::async_trait;
 use serde_json::Value;
-use tracing::{debug, info, instrument, warn};
+use tracing::{info, instrument, warn};
 
 // Traits.
 
@@ -26,7 +29,7 @@ use tracing::{debug, info, instrument, warn};
 #[async_trait]
 pub trait GenericLlmClient {
     /// Generate a response from a static system prompt and user message.
-    async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+    async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
 }
 
 // Structs.
@@ -92,13 +95,21 @@ impl OpenAiLlmClient {
 impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
-    async fn generate_response(&self, self_id: &str, channel_directive: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
-        debug!("Generating response with system prompt and user message");
-
+    async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
         let input = ResponseInput::Items(vec![
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.system_prompt.clone()).build()?),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(channel_directive.to_string()).build()?),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("Your Channel Directive:\n\n{channel_directive}"))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("Your Channel Context:\n\n{channel_context}"))
+                    .build()?,
+            ),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your User ID: {self_id}")).build()?),
             InputItem::Message(
                 InputMessageArgs::default()
@@ -111,7 +122,16 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // Prepare allowed tools.
 
-        let tools = get_openai_tools();
+        // The LLM often thinks it wants to update its context: let's not allow that unless the user explicitly asks for it.
+        let tools = if user_message.contains("remember") || user_message.contains("directive") {
+            get_openai_full_tools()
+        } else {
+            get_openai_restricted_tools()
+        };
+
+        // Prepare text config.
+
+        let text_config = get_openai_text_config();
 
         // Loop over requests until we get a "final" response.
         // For example, the LLM may give a "context needed" or "search needed" response.
@@ -122,13 +142,17 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .max_output_tokens(self.max_tokens)
                 .temperature(self.temperature)
                 .model(&self.model)
-                .input(input)
+                .instructions(self.system_prompt.clone())
                 .tools(tools.clone())
+                // TODO: This doesn't seem to work properly, so the OpenAI crate is likely messing up the correct web request.
+                // So, disregarding, for now.
+                //.text(text_config.clone())
+                .input(input)
                 .build()?;
 
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?;
-            
+
             // This may change, but for now, always break after one message.
             break result;
         };
@@ -141,66 +165,63 @@ impl GenericLlmClient for OpenAiLlmClient {
 pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmResponse>> {
     let mut result = Vec::new();
 
-    match &response.output {
-        Some(output) => {
-            info!("LLM response has {} outputs.", output.len());
+    info!("LLM response has {} outputs.", response.output.len());
+    for output in &response.output {
+        match output {
+            OutputContent::Message(message) => {
+                info!("LLM response has {} messages.", message.content.len());
 
-            for content in output {
-                match content {
-                    OutputContent::Message(message) => {
-                        info!("LLM response has {} messages.", message.content.len());
-
-                        for message_content in &message.content {
-                            match message_content {
-                                Content::OutputText(text) => {
-                                    // TODO: Also look at the annotation for citations?
-                                    let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
-
-                                    result.push(parsed);
-                                }
-                                Content::Refusal(reason) => {
-                                    return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
-                                }
+                for message_content in &message.content {
+                    match message_content {
+                        Content::OutputText(text) => {
+                            // TODO: Handle annotations.
+                            if text.annotations.is_empty() {
+                                info!("LLM response has no annotations.");
+                            } else {
+                                info!("LLM response has {} annotations.", text.annotations.len());
                             }
-                        }
-                    }
-                    OutputContent::FunctionCall(function_call) => match function_call.name.as_str() {
-                        "set_channel_directive" => {
-                            info!("Channel directive tool called ...");
 
-                            let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                            let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                            let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+                            let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
 
-                            result.push(LlmResponse::UpdateChannelDirective { message });
+                            result.push(parsed);
                         }
-                        "update_channel_context" => {
-                            info!("Update context tool called ...");
-
-                            let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                            let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                            let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
-
-                            result.push(LlmResponse::UpdateContext { message });
+                        Content::Refusal(reason) => {
+                            return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
                         }
-                        _ => {
-                            warn!("Unknown function call: {function_call:#?}");
-                            return Err(anyhow::anyhow!("Unknown function call."));
-                        }
-                    },
-                    OutputContent::WebSearchCall(web_search_call) => {
-                        info!("Web search tool called: {web_search_call:#?}");
-                    }
-                    _ => {
-                        warn!("Unknown output: {content:#?}");
-                        return Err(anyhow::anyhow!("Unknown output type"));
                     }
                 }
             }
-        }
-        None => {
-            warn!("No output in response.");
-            return Err(anyhow::anyhow!("No output in response."));
+            OutputContent::FunctionCall(function_call) => match function_call.name.as_str() {
+                "set_channel_directive" => {
+                    info!("Channel directive tool called ...");
+
+                    let arguments: Value = serde_json::from_str(&function_call.arguments)?;
+                    let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
+                    let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+
+                    result.push(LlmResponse::UpdateChannelDirective { message });
+                }
+                "update_channel_context" => {
+                    info!("Update context tool called ...");
+
+                    let arguments: Value = serde_json::from_str(&function_call.arguments)?;
+                    let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
+                    let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+
+                    result.push(LlmResponse::UpdateContext { message });
+                }
+                _ => {
+                    warn!("Unknown function call: {function_call:#?}");
+                    return Err(anyhow::anyhow!("Unknown function call."));
+                }
+            },
+            OutputContent::WebSearchCall(web_search_call) => {
+                info!("Web search tool called: {web_search_call:#?}");
+            }
+            _ => {
+                warn!("Unknown output: {output:#?}");
+                return Err(anyhow::anyhow!("Unknown output type"));
+            }
         }
     }
 
@@ -209,15 +230,17 @@ pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmRe
 
 // Statics.
 
-static OPENAI_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
+static OPENAI_FULL_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
+static OPENAI_RESTRICTED_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
+static OPENAI_TEXT_CONFIG: OnceLock<TextConfig> = OnceLock::new();
 
-fn get_openai_tools() -> &'static Vec<ToolDefinition> {
-    OPENAI_TOOLS.get_or_init(|| {
+fn get_openai_full_tools() -> &'static Vec<ToolDefinition> {
+    OPENAI_FULL_TOOLS.get_or_init(|| {
         vec![
             ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap()),
             ToolDefinition::Function(FunctionArgs::default()
                 .name("set_channel_directive")
-                .description("Set the channel directive for the bot.")
+                .description("Set the channel directive for the bot.  You should only call this tool if the user @-mentions you, and says something like \"please update my channel directive\".  This is a subtle distinction, but it is important.  99% of the time, the user is asking you to reply, and this tool should not be called.  This will be provided to you in _every_ subsequent request.")
                 .parameters(serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -230,7 +253,7 @@ fn get_openai_tools() -> &'static Vec<ToolDefinition> {
             ),
             ToolDefinition::Function(FunctionArgs::default()
                 .name("update_channel_context")
-                .description("Update the context for the bot.  This is provided to you in _every_ subsequent request, but does not replace the channel directive, which is more important.")
+                .description("Update the context for the bot.  You should only call this tool if the user @-mentions you, and says something like \"please update my channel context\" or \"please remember that ...\".  This is a subtle distinction, but it is important.  99% of the time, the user is asking you to reply, and this tool should not be called.  This will be provided to you in _every_ subsequent request.")
                 .parameters(serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -242,6 +265,37 @@ fn get_openai_tools() -> &'static Vec<ToolDefinition> {
                 .build().unwrap()
             ),
         ]
+    })
+}
+
+fn get_openai_restricted_tools() -> &'static Vec<ToolDefinition> {
+    OPENAI_RESTRICTED_TOOLS.get_or_init(|| vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap())])
+}
+
+fn get_openai_text_config() -> &'static TextConfig {
+    OPENAI_TEXT_CONFIG.get_or_init(|| TextConfig {
+        format: TextResponseFormat::JsonSchema(ResponseFormatJsonSchema {
+            name: "TriageBotResponse".to_string(),
+            description: Some("Format for triage bot responses.".to_string()),
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["NoAction", "ReplyToThread"]
+                    },
+                    "thread_ts": { "type": ["string", "null"] },
+                    "classification": {
+                        "type": ["string", "null"],
+                        "enum": ["Bug", "Feature", "Question", "Incident", "Other"]
+                    },
+                    "message": { "type": ["string", "null"] }
+                },
+                "required": ["type", "thread_ts", "classification", "message"],
+                "additionalProperties": false
+            })),
+            strict: Some(true),
+        }),
     })
 }
 
@@ -257,7 +311,7 @@ mod tests {
 
         #[async_trait]
         impl GenericLlmClient for Llm {
-            async fn generate_response(&self, self_id: &str, channel_prompt: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+            async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
         }
     }
 
@@ -265,11 +319,11 @@ mod tests {
     async fn llm_client_delegates_generate_response() {
         let mut mock = MockLlm::new();
         mock.expect_generate_response()
-            .with(eq("me"), eq("dir"), eq("ctx"), eq("msg"))
+            .with(eq("me"), eq("dir"), eq("ctx"), eq("thread"), eq("msg"))
             .times(1)
-            .returning(|_, _, _, _| Ok(vec![]));
+            .returning(|_, _, _, _, _| Ok(vec![]));
 
         let client = LlmClient { inner: Arc::new(mock) };
-        client.generate_response("me", "dir", "ctx", "msg").await.unwrap();
+        client.generate_response("me", "dir", "ctx", "thread", "msg").await.unwrap();
     }
 }
