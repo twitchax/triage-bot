@@ -65,16 +65,6 @@ pub struct Channel {
     pub channel_prompt: String,
 }
 
-/// A user record in the database.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct User {
-    pub id: Option<surrealdb::sql::Thing>,
-    pub user_id: String,
-    pub name: String,
-    pub real_name: Option<String>,
-    pub email: Option<String>,
-}
-
 // SurrealDB client implementation.
 
 /// Database client for SurrealDB.
