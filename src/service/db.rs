@@ -223,10 +223,10 @@ mod tests {
         let cfg = Config {
             inner: Arc::new(ConfigInner {
                 openai_api_key: String::new(),
-                openai_model: "test".to_string(),
-                system_prompt: None,
-                mention_addendum_prompt: None,
-                openai_temperature: 0.7,
+                openai_search_agent_model: "test".to_string(),
+                openai_assistant_agent_model: "test".to_string(),
+                openai_search_agent_temperature: 0.0,
+                openai_assistant_agent_temperature: 0.7,
                 openai_max_tokens: 2048u32,
                 slack_app_token: String::new(),
                 slack_bot_token: String::new(),
@@ -234,6 +234,7 @@ mod tests {
                 db_endpoint: String::new(),
                 db_username: String::new(),
                 db_password: String::new(),
+                ..Default::default()
             }),
         };
 

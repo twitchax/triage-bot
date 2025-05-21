@@ -5,11 +5,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use crate::base::config::Config;
 use crate::base::types::{LlmResponse, Res};
-use crate::base::{
-    config::Config,
-    prompts::{get_mention_directive, get_system_directive},
-};
 use anyhow::Context;
 use async_openai::{
     Client,
@@ -63,11 +60,7 @@ impl LlmClient {
 #[derive(Clone)]
 pub struct OpenAiLlmClient {
     client: Client<OpenAIConfig>,
-    model: String,
-    system_prompt: String,
-    mention_addendum_prompt: String,
-    temperature: f32,
-    max_tokens: u32,
+    config: Config,
 }
 
 impl OpenAiLlmClient {
@@ -75,46 +68,33 @@ impl OpenAiLlmClient {
     #[instrument(name = "OpenAiLlmClient::new", skip_all)]
     pub fn new(config: &Config) -> Self {
         let cfg = OpenAIConfig::new().with_api_key(config.openai_api_key.clone());
-        let model = config.openai_model.clone();
-
-        let system_prompt = get_system_directive(config).to_string();
-        let mention_addendum_prompt = get_mention_directive(config).to_string();
 
         Self {
             client: Client::with_config(cfg),
-            model,
-            system_prompt,
-            mention_addendum_prompt,
-            temperature: config.openai_temperature,
-            max_tokens: config.openai_max_tokens,
+            config: config.clone(),
         }
     }
 
     /// Execute a search using the search agent
+    #[instrument(name = "OpenAiLlmClient::execute_search", skip_all)]
     async fn execute_search(&self, user_message: &str) -> Res<String> {
         // Create a search-specific prompt input
-        let search_input = ResponseInput::Items(vec![
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::System)
-                    .content(crate::base::prompts::SEARCH_AGENT_DIRECTIVE.to_string())
-                    .build()?,
-            ),
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
-        ]);
+        let search_input = ResponseInput::Items(vec![InputItem::Message(
+            InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?,
+        )]);
 
         // Prepare web search tools
-        let web_search_tool = vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build()?)];
+        let search_tools = get_openai_search_tools().clone();
 
         // Text config for the search response
         let text_config = TextConfig { format: TextResponseFormat::Text };
 
         // Create the request
         let request = CreateResponseRequestArgs::default()
-            .max_output_tokens(self.max_tokens)
-            .temperature(0.0) // Use lower temperature for search agent
-            .model(&self.model)
-            .tools(web_search_tool)
+            .max_output_tokens(self.config.openai_max_tokens)
+            .temperature(self.config.openai_search_agent_temperature)
+            .model(&self.config.openai_search_agent_model)
+            .tools(search_tools)
             .text(text_config)
             .input(search_input)
             .build()?;
@@ -129,10 +109,16 @@ impl OpenAiLlmClient {
         Ok(search_results.join("\n\n"))
     }
 
-    /// Build the response input including search results
+    /// Build the response input including search results.
+    #[instrument(name = "OpenAiLlmClient::build_response_input", skip_all)]
     fn build_response_input(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str, search_results: &str) -> Res<ResponseInput> {
         Ok(ResponseInput::Items(vec![
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::System)
+                    .content(self.config.assistant_agent_mention_directive.clone())
+                    .build()?,
+            ),
             InputItem::Message(
                 InputMessageArgs::default()
                     .role(ResponsesRole::Developer)
@@ -180,7 +166,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // The LLM often thinks it wants to update its context: let's not allow that unless the user explicitly asks for it.
         let tools = if user_message.contains("remember") || user_message.contains("directive") {
-            get_openai_full_tools()
+            get_openai_assistant_tools()
         } else {
             get_openai_restricted_tools()
         };
@@ -195,10 +181,10 @@ impl GenericLlmClient for OpenAiLlmClient {
         #[allow(clippy::never_loop)]
         let result = loop {
             let request = CreateResponseRequestArgs::default()
-                .max_output_tokens(self.max_tokens)
-                .temperature(self.temperature)
-                .model(&self.model)
-                .instructions(self.system_prompt.clone())
+                .max_output_tokens(self.config.openai_max_tokens)
+                .temperature(self.config.openai_assistant_agent_temperature)
+                .model(&self.config.openai_assistant_agent_model)
+                .instructions(self.config.assistant_agent_system_directive.clone())
                 .tools(tools.clone())
                 // TODO: This doesn't seem to work properly, so the OpenAI crate is likely messing up the correct web request.
                 // So, disregarding, for now.
@@ -332,12 +318,13 @@ pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Re
 
 static OPENAI_FULL_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
 static OPENAI_RESTRICTED_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
+static OPENAI_SEARCH_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
 static OPENAI_TEXT_CONFIG: OnceLock<TextConfig> = OnceLock::new();
 
-fn get_openai_full_tools() -> &'static Vec<ToolDefinition> {
+/// Get the OpenAI assistant tools.
+fn get_openai_assistant_tools() -> &'static Vec<ToolDefinition> {
     OPENAI_FULL_TOOLS.get_or_init(|| {
         vec![
-            ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap()),
             ToolDefinition::Function(FunctionArgs::default()
                 .name("set_channel_directive")
                 .description("Set the channel directive for the bot.  You should only call this tool if the user @-mentions you, and says something like \"please update my channel directive\".  This is a subtle distinction, but it is important.  99% of the time, the user is asking you to reply, and this tool should not be called.  This will be provided to you in _every_ subsequent request.")
@@ -368,8 +355,16 @@ fn get_openai_full_tools() -> &'static Vec<ToolDefinition> {
     })
 }
 
+/// Get the OpenAI restricted assistant tools.
+///
+/// This is used when we don't want the assistant to call context updating tools.
 fn get_openai_restricted_tools() -> &'static Vec<ToolDefinition> {
-    OPENAI_RESTRICTED_TOOLS.get_or_init(|| vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap())])
+    OPENAI_RESTRICTED_TOOLS.get_or_init(Vec::new)
+}
+
+/// Get the OpenAI search tools.
+fn get_openai_search_tools() -> &'static Vec<ToolDefinition> {
+    OPENAI_SEARCH_TOOLS.get_or_init(|| vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap())])
 }
 
 fn get_openai_text_config() -> &'static TextConfig {

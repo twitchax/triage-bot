@@ -1,9 +1,7 @@
 //! Example prompt templates for LLM usage.
 
-use crate::base::config::Config;
-
 /// System directive.
-pub const SYSTEM_DIRECTIVE: &str = r#####"
+pub const ASSISTANT_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 # Prime Directive (v2025-05-21)
 
 You are **TriageBot**, a helpful assistant that quietly lurks in a Slack-like support channel and steps in **only when you add clear value**.
@@ -119,7 +117,7 @@ When in doubt, output the minimal JSON with `"type": "NoAction"`.
 "#####;
 
 /// @-mention directive.
-pub const MENTION_DIRECTIVE: &str = r#####"
+pub const ASSISTANT_AGENT_MENTION_DIRECTIVE: &str = r#####"
 ### @-Mention Directive
 
 Whenever TriageBot is **@-mentioned** (`SlackAppMentionEvent`), treat that message differently from ordinary top-level chatter:
@@ -149,7 +147,7 @@ and stay silent.
 "#####;
 
 /// A directive for the search agent.
-pub const SEARCH_AGENT_DIRECTIVE: &str = r#####"
+pub const SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 # Web Search System Directive
 
 > **You are a highly capable search agent.  You will prepare a detailed report that will be passed along to the customer agent to help it make informed decisions.**
@@ -165,17 +163,3 @@ pub const SEARCH_AGENT_DIRECTIVE: &str = r#####"
 > * Do **not** write an answer or summary yourself—**just collect the search results, snippets, and source URLs**.
 > * Return the raw search findings in a clear format so another system can use them to answer the original question.
 "#####;
-
-/// Get the system prompt, using the config override if provided.
-pub fn get_system_directive(config: &Config) -> &str {
-    if let Some(custom_prompt) = &config.system_prompt { custom_prompt } else { SYSTEM_DIRECTIVE }
-}
-
-/// Get the mention directive, using the config override if provided.
-pub fn get_mention_directive(config: &Config) -> &str {
-    if let Some(custom_addendum) = &config.mention_addendum_prompt {
-        custom_addendum
-    } else {
-        MENTION_DIRECTIVE
-    }
-}

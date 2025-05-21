@@ -4,21 +4,48 @@ use std::{ops::Deref, sync::Arc};
 
 use serde::Deserialize;
 
+use crate::base::prompts;
+
 use super::types::Res;
 
-/// Default OpenAI model to use
-fn default_openai_model() -> String {
+/// Default OpenAI search agent model to use
+fn default_openai_search_agent_model() -> String {
     "gpt-4.1".to_string()
 }
 
-/// Default sampling temperature for OpenAI model
-fn default_openai_temperature() -> f32 {
+/// Default OpenAI assistant agent model to use
+fn default_openai_assistant_agent_model() -> String {
+    "o3-mini".to_string()
+}
+
+/// Default sampling temperature for OpenAI search agent
+fn default_openai_search_agent_temperature() -> f32 {
+    0.0
+}
+
+/// Default sampling temperature for OpenAI assistant agent
+fn default_openai_assistant_agent_temperature() -> f32 {
     0.7
 }
 
 /// Default max output tokens for OpenAI model
 fn default_openai_max_tokens() -> u32 {
     65536
+}
+
+/// Default system directive for the assistant agent.
+fn default_assistant_agent_system_directive() -> String {
+    prompts::ASSISTANT_AGENT_SYSTEM_DIRECTIVE.to_string()
+}
+
+/// Default mention addendum directive for the assistant agent.
+fn default_assistant_agent_mention_directive() -> String {
+    prompts::ASSISTANT_AGENT_MENTION_DIRECTIVE.to_string()
+}
+
+/// Default search agent directive for the assistant agent.
+fn default_search_agent_directive() -> String {
+    prompts::SEARCH_AGENT_SYSTEM_DIRECTIVE.to_string()
 }
 
 /// Configuration for the triage-bot application.
@@ -35,24 +62,35 @@ impl Deref for Config {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct ConfigInner {
     /// OpenAI API key (`OPENAI_API_KEY`).
     pub openai_api_key: String,
-    /// OpenAI model to use (`OPENAI_MODEL`).
-    #[serde(default = "default_openai_model")]
-    pub openai_model: String,
-    /// Optional custom system prompt to override the default (`SYSTEM_PROMPT`).
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-    /// Optional custom mention addendum prompt to override the default (`MENTION_ADDENDUM_PROMPT`).
-    #[serde(default)]
-    pub mention_addendum_prompt: Option<String>,
-    /// Sampling temperature to use for OpenAI model (`OPENAI_TEMPERATURE`).
+    /// OpenAI search agent model to use (`OPENAI_SEARCH_AGENT_MODEL`).
+    #[serde(default = "default_openai_search_agent_model")]
+    pub openai_search_agent_model: String,
+    /// OpenAI assistant agent model to use (`OPENAI_ASSISTANT_AGENT_MODEL`).
+    #[serde(default = "default_openai_assistant_agent_model")]
+    pub openai_assistant_agent_model: String,
+    /// Optional custom system directive to override the default (`SYSTEM_DIRECTIVE`).
+    #[serde(default = "default_assistant_agent_system_directive")]
+    pub assistant_agent_system_directive: String,
+    /// Optional custom mention addendum directive to override the default (`MENTION_ADDENDUM_DIRECTIVE`).
+    #[serde(default = "default_assistant_agent_mention_directive")]
+    pub assistant_agent_mention_directive: String,
+    /// Optional custom search agent directive to override the default (`SEARCH_AGENT_DIRECTIVE`).
+    #[serde(default = "default_search_agent_directive")]
+    pub search_agent_directive: String,
+    /// Sampling temperature to use for OpenAI search agent model (`OPENAI_SEARCH_AGENT_TEMPERATURE`).
     /// Value between 0 and 2. Higher values like 0.8 make output more random,
     /// while lower values like 0.2 make it more focused and deterministic.
-    #[serde(default = "default_openai_temperature")]
-    pub openai_temperature: f32,
+    #[serde(default = "default_openai_search_agent_temperature")]
+    pub openai_search_agent_temperature: f32,
+    /// Sampling temperature to use for OpenAI assistant agent model (`OPENAI_ASSISTANT_AGENT_TEMPERATURE`).
+    /// Value between 0 and 2. Higher values like 0.8 make output more random,
+    /// while lower values like 0.2 make it more focused and deterministic.
+    #[serde(default = "default_openai_assistant_agent_temperature")]
+    pub openai_assistant_agent_temperature: f32,
     /// Max output tokens for OpenAI model (`OPENAI_MAX_TOKENS`).
     /// Maximum number of tokens that can be generated in the response.
     #[serde(default = "default_openai_max_tokens")]
@@ -85,8 +123,12 @@ impl Config {
             inner: Arc::new(cfg.build()?.try_deserialize()?),
         };
 
-        if result.openai_temperature < 0.0 || result.openai_temperature > 2.0 {
-            return Err(anyhow::anyhow!("OpenAI temperature must be between 0 and 2."));
+        if result.openai_search_agent_temperature < 0.0 || result.openai_search_agent_temperature > 2.0 {
+            return Err(anyhow::anyhow!("OpenAI search agent temperature must be between 0 and 2."));
+        }
+
+        if result.openai_assistant_agent_temperature < 0.0 || result.openai_assistant_agent_temperature > 2.0 {
+            return Err(anyhow::anyhow!("OpenAI assistant agent temperature must be between 0 and 2."));
         }
 
         if result.openai_max_tokens < 1 || result.openai_max_tokens > 128000 {
