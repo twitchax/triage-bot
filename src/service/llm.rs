@@ -90,8 +90,47 @@ impl OpenAiLlmClient {
         }
     }
 
-    /// Build the response input for the LLM request
-    fn build_response_input(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<ResponseInput> {
+    /// Execute a search using the search agent
+    async fn execute_search(&self, user_message: &str) -> Res<String> {
+        // Create a search-specific prompt input
+        let search_input = ResponseInput::Items(vec![
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::System)
+                    .content(crate::base::prompts::SEARCH_AGENT_DIRECTIVE.to_string())
+                    .build()?,
+            ),
+            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
+        ]);
+
+        // Prepare web search tools
+        let web_search_tool = vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build()?)];
+
+        // Text config for the search response
+        let text_config = TextConfig { format: TextResponseFormat::Text };
+
+        // Create the request
+        let request = CreateResponseRequestArgs::default()
+            .max_output_tokens(self.max_tokens)
+            .temperature(0.0) // Use lower temperature for search agent
+            .model(&self.model)
+            .tools(web_search_tool)
+            .text(text_config)
+            .input(search_input)
+            .build()?;
+
+        // Execute the search request
+        let response = self.client.responses().create(request).await?;
+
+        // Parse the text response
+        let search_results = parse_openai_text_response(&response)?;
+
+        // Combine the search results into a single string
+        Ok(search_results.join("\n\n"))
+    }
+
+    /// Build the response input including search results
+    fn build_response_input(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str, search_results: &str) -> Res<ResponseInput> {
         Ok(ResponseInput::Items(vec![
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
             InputItem::Message(
@@ -113,6 +152,12 @@ impl OpenAiLlmClient {
                     .content(format!("Raw Thread Context:\n\n{thread_context}"))
                     .build()?,
             ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("Search Results:\n\n{search_results}"))
+                    .build()?,
+            ),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
         ]))
     }
@@ -123,7 +168,13 @@ impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
     async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
-        let input = self.build_response_input(self_id, channel_directive, channel_context, thread_context, user_message)?;
+        // First, execute the search agent to gather relevant information
+        info!("Executing search agent with user message");
+        let search_results = self.execute_search(user_message).await?;
+        info!("Search agent completed, results length: {}", search_results.len());
+
+        // Build the input with search results included
+        let input = self.build_response_input(self_id, channel_directive, channel_context, thread_context, user_message, &search_results)?;
 
         // Prepare allowed tools.
 
