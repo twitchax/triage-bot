@@ -1,0 +1,44 @@
+name: GitHub Copilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  copilot:
+    runs-on: ubuntu-latest
+    env:
+      COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: index.crates.io,static.rust-lang.org,docs.rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2025-05-14
+          components: rustfmt, clippy
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.4
+
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Setup build environment
+        run: |
+          echo "RUSTFLAGS=-C linker=clang -C link-arg=-fuse-ld=mold" >> $GITHUB_ENV
+
+      - name: Build project
+        run: cargo build
+
+      - name: Run tests
+        run: cargo nextest run
