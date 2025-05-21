@@ -1,0 +1,91 @@
+on: [push]
+
+name: Build and Test
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: "true"
+      - run: cargo install cargo-nextest
+      - run: cargo nextest run
+
+  codecov:
+    needs: test
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: "true"
+      - run: cargo install cargo-llvm-cov
+      - run: cargo install cargo-nextest
+      - run: cargo llvm-cov nextest --all-features --workspace --lcov --output-path coverage.lcov
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: twitchax/triage-bot
+
+  build_linux:
+    needs: test
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          CARGO_PROFILE_RELEASE_LTO=true \
+          RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold" \
+          cargo build --target x86_64-unknown-linux-gnu --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triage-bot_x86_64-unknown-linux-gnu
+          path: target/x86_64-unknown-linux-gnu/release/triage-bot
+
+  build_windows:
+    needs: test
+    name: Build Windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64
+        run: sudo apt-get install mingw-w64
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: "true"
+      - run: cargo install cross
+      - run: cross build --target x86_64-pc-windows-gnu --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triage-bot_x86_64-pc-windows-gnu
+          path: target/x86_64-pc-windows-gnu/release/triage-bot.exe
+        
+  build_macos:
+    needs: test
+    name: Build MacOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: "true"
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-apple-darwin
+      - run: cargo build --target aarch64-apple-darwin --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triage-bot_aarch64-apple-darwin
+          path: target/aarch64-apple-darwin/release/triage-bot
