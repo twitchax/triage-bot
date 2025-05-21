@@ -12,7 +12,7 @@ build:
 
 # Test instructions  
 test:
-  command: cargo test
+  command: cargo nextest run
 
 # Use these environment variables during Copilot sessions
 environment:
