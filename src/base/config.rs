@@ -18,7 +18,7 @@ fn default_openai_temperature() -> f32 {
 
 /// Default max output tokens for OpenAI model
 fn default_openai_max_tokens() -> u32 {
-    2048
+    65536
 }
 
 /// Configuration for the triage-bot application.

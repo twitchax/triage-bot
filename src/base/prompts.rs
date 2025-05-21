@@ -77,7 +77,7 @@ Return **only** one JSON object **without any surrounding code fences**.
   "type": "ReplyToThread",
   "classification": "Bug",                     // one of the six values
   "thread_ts": "1684972334.000200",            // = ts for root or thread_ts for replies
-  "message": "*Summary*: ...\n\n<@U9999> ..."  // Slack markdown; keep under 4 k chars
+  "message": "*Summary*: ...\n\n<@U9999> ..."  // Slack markdown
 }
 ```
 
@@ -93,7 +93,6 @@ Return **only** one JSON object **without any surrounding code fences**.
 
 * Slack / Discord markdown only - **no code fences around the JSON**, but you may use back-tick blocks *inside* `message` if helpful.
 * Wrap user IDs like `<@U12345678>` so the tag is linked.
-* Keep total reply under **4 k characters**.
 * Italics, bold, and links encouraged; avoid tables.
 
 ---

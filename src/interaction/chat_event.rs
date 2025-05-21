@@ -37,7 +37,7 @@ where
     let channel_directive = &channel.channel_directive;
 
     // Next, get the other context from the database.
-    
+
     let channel_context = db.get_channel_context(&channel_id).await?;
 
     // TODO: Maybe we can also have context about specific users that we would also look up?
@@ -49,7 +49,13 @@ where
 
     let user_message = serde_json::to_string(&event).unwrap();
     let responses = llm
-        .generate_response(chat.bot_user_id(), &serde_json::to_string(&channel_directive)?, &serde_json::to_string(&channel_context)?, &thread_context, &user_message)
+        .generate_response(
+            chat.bot_user_id(),
+            &serde_json::to_string(&channel_directive)?,
+            &serde_json::to_string(&channel_context)?,
+            &thread_context,
+            &user_message,
+        )
         .await?;
 
     // Take the proper action based on the response.

@@ -6,13 +6,13 @@ use crate::base::{
     config::Config,
     types::{Res, Void},
 };
-use anyhow::{anyhow, Ok};
+use anyhow::{Ok, anyhow};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use surrealdb::{RecordId, Surreal};
 #[cfg(test)]
 use surrealdb::engine::local::{Db as DbConnection, Mem};
+use surrealdb::{RecordId, Surreal};
 #[cfg(not(test))]
 use surrealdb::{
     engine::remote::ws::{Client as DbConnection, Ws},
@@ -181,7 +181,8 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self, context))]
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()> {
-        let _ = self.db
+        let _ = self
+            .db
             .query("BEGIN TRANSACTION;")
             .query("LET $channel = type::thing('channel', $channel_id);")
             .query("LET $context = (CREATE context CONTENT $context_content).id;")
@@ -198,12 +199,13 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self))]
     async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>> {
-        let context: Vec<LlmContext> = self.db
+        let context: Vec<LlmContext> = self
+            .db
             .query("SELECT * FROM type::thing('channel', $channel_id)->has_context->context;")
             .bind(("channel_id", channel_id.to_string()))
             .await?
             .take(0)?;
-        
+
         info!("Retrieved context for channel `{}`.", channel_id);
 
         Ok(context)

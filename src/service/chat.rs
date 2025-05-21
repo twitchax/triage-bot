@@ -10,10 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use slack_morphism::{
-    errors::SlackClientError,
-    prelude::*,
-};
+use slack_morphism::{errors::SlackClientError, prelude::*};
 use tracing::{info, instrument, warn};
 
 use std::{ops::Deref, sync::Arc};
