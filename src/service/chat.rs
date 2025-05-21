@@ -75,6 +75,15 @@ impl ChatClient {
         let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
         Ok(Self { inner: Arc::new(client) })
     }
+    
+    #[cfg(test)]
+    /// Creates a test chat client for integration tests.
+    pub async fn test(_config: &Config, _db: DbClient, _llm: LlmClient) -> Res<Self> {
+        let client = TestChatClient::new();
+        Ok(Self { inner: Arc::new(client) })
+    }
+        Ok(Self { inner: Arc::new(client) })
+    }
 }
 
 impl From<SlackChatClient> for ChatClient {
@@ -325,6 +334,49 @@ mod tests {
             async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
             async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
             async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+        }
+    }
+
+    // TestChatClient for integration testing
+    #[cfg(test)]
+    pub struct TestChatClient {
+        bot_user_id: String,
+    }
+
+    #[cfg(test)]
+    impl TestChatClient {
+        pub fn new() -> Self {
+            Self {
+                bot_user_id: "U_TEST_BOT".to_string(),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    #[async_trait]
+    impl GenericChatClient for TestChatClient {
+        fn bot_user_id(&self) -> &str {
+            &self.bot_user_id
+        }
+
+        async fn start(&self) -> Void {
+            // No-op for tests
+            Ok(())
+        }
+
+        async fn send_message(&self, _channel_id: &str, _thread_ts: &str, _text: &str) -> Void {
+            // Just return success for tests
+            Ok(())
+        }
+
+        async fn react_to_message(&self, _channel_id: &str, _thread_ts: &str, _emoji: &str) -> Void {
+            // Just return success for tests
+            Ok(())
+        }
+
+        async fn get_thread_context(&self, _channel_id: &str, _thread_ts: &str) -> Res<String> {
+            // Return an empty thread context for tests
+            Ok("[]".to_string())
         }
     }
 
