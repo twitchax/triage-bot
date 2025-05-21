@@ -19,12 +19,6 @@ fi
 echo "Installing specified Rust toolchain..."
 rustup show
 
-# Install cargo-nextest if not already installed
-if ! command -v cargo-nextest &> /dev/null; then
-    echo "Installing cargo-nextest..."
-    cargo install cargo-nextest
-fi
-
 # Install sccache if not already installed
 if ! command -v sccache &> /dev/null; then
     echo "Installing sccache..."
@@ -39,10 +33,9 @@ if [[ "$(uname)" == "Linux" ]] && ! command -v mold &> /dev/null; then
 fi
 
 # Set environment variables
-export CARGO_PROFILE_RELEASE_LTO=true
 export RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 
 echo "Environment setup complete. You can now build the project with:"
-echo "CARGO_PROFILE_RELEASE_LTO=true RUSTFLAGS=\"-C linker=clang -C link-arg=-fuse-ld=mold\" cargo build --release -j 64"
+echo "cargo build"
 echo "And run tests with:"
-echo "cargo nextest run"
+echo "cargo test"

@@ -2,23 +2,18 @@
 
 # Enabled domains for firewall allowlist
 allowed_domains:
-  - cdn.fwupd.org
   - index.crates.io
   - static.rust-lang.org
   - docs.rs
 
 # Build instructions
 build:
-  command: |
-    CARGO_PROFILE_RELEASE_LTO=true \
-    RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold" \
-    cargo build --release -j 64
+  command: cargo build
 
 # Test instructions  
 test:
-  command: cargo nextest run
+  command: cargo test
 
 # Use these environment variables during Copilot sessions
 environment:
-  CARGO_PROFILE_RELEASE_LTO: "true"
   RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold"

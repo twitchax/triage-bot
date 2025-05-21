@@ -12,10 +12,9 @@ We've included a script to help you set up your development environment. Run:
 
 This script will:
 1. Install or update Rust and the required toolchain
-2. Install cargo-nextest for running tests
-3. Install sccache for faster builds
-4. Install mold linker (on Linux) for faster linking
-5. Set up environment variables for optimal builds
+2. Install sccache for faster builds
+3. Install mold linker (on Linux) for faster linking
+4. Set up environment variables for optimal builds
 
 ## VSCode Integration
 
@@ -27,20 +26,18 @@ If you're using VSCode, we've included recommended extensions and settings:
 
 ## Building the Project
 
-For the fastest, deterministic release build, use:
+Build the project with:
 
 ```bash
-CARGO_PROFILE_RELEASE_LTO=true \
-RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold" \
-cargo build --release -j 64
+cargo build
 ```
 
 ## Running Tests
 
-Run tests with cargo-nextest for faster, more reliable test runs:
+Run tests with:
 
 ```bash
-cargo nextest run
+cargo test
 ```
 
 ## GitHub Actions Workflow
@@ -49,7 +46,6 @@ A GitHub Actions workflow is configured for GitHub Copilot, which includes:
 - Setting up the Rust toolchain
 - Installing necessary tools
 - Configuring the firewall to allow access to:
-  - cdn.fwupd.org
   - index.crates.io
   - static.rust-lang.org
   - docs.rs
@@ -58,13 +54,5 @@ A GitHub Actions workflow is configured for GitHub Copilot, which includes:
 
 As mentioned in the AGENTS.md file, the project follows these build conventions:
 
-```
-# Fast, deterministic release build
-CARGO_PROFILE_RELEASE_LTO=true \
-RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold" \
-cargo build --release -j 64
-```
-
 - CI runs on GitHub Actions. Keep the badge green.
-- Prefer `cargo nextest run` for faster, flaky‑test‑resilient suites.
 - Use a local `sccache` for repeat builds.

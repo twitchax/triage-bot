@@ -23,11 +23,6 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.4
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
       - name: Install mold linker
         run: |
           sudo apt-get update
