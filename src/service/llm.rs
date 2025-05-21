@@ -8,15 +8,15 @@ use std::{
 use crate::base::types::{LlmResponse, Res};
 use crate::base::{
     config::Config,
-    prompts::{get_mention_addendum, get_system_prompt},
+    prompts::{get_mention_directive, get_system_directive},
 };
 use anyhow::Context;
 use async_openai::{
     Client,
     config::OpenAIConfig,
     types::{
-        Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseFormat, ResponseFormatJsonSchema, ResponseInput, ResponsesRole,
-        TextConfig, TextResponseFormat, ToolDefinition, WebSearchPreviewArgs,
+        Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseFormatJsonSchema, ResponseInput, ResponsesRole, TextConfig,
+        TextResponseFormat, ToolDefinition, WebSearchPreviewArgs,
     },
 };
 use async_trait::async_trait;
@@ -77,8 +77,8 @@ impl OpenAiLlmClient {
         let cfg = OpenAIConfig::new().with_api_key(config.openai_api_key.clone());
         let model = config.openai_model.clone();
 
-        let system_prompt = get_system_prompt(config).to_string();
-        let mention_addendum_prompt = get_mention_addendum(config).to_string();
+        let system_prompt = get_system_directive(config).to_string();
+        let mention_addendum_prompt = get_mention_directive(config).to_string();
 
         Self {
             client: Client::with_config(cfg),
@@ -89,14 +89,10 @@ impl OpenAiLlmClient {
             max_tokens: config.openai_max_tokens,
         }
     }
-}
 
-#[async_trait]
-impl GenericLlmClient for OpenAiLlmClient {
-    /// Generate a response from a static system prompt and user message.
-    #[instrument(skip_all)]
-    async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
-        let input = ResponseInput::Items(vec![
+    /// Build the response input for the LLM request
+    fn build_response_input(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<ResponseInput> {
+        Ok(ResponseInput::Items(vec![
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::System).content(self.mention_addendum_prompt.clone()).build()?),
             InputItem::Message(
                 InputMessageArgs::default()
@@ -118,7 +114,16 @@ impl GenericLlmClient for OpenAiLlmClient {
                     .build()?,
             ),
             InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
-        ]);
+        ]))
+    }
+}
+
+#[async_trait]
+impl GenericLlmClient for OpenAiLlmClient {
+    /// Generate a response from a static system prompt and user message.
+    #[instrument(skip_all)]
+    async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
+        let input = self.build_response_input(self_id, channel_directive, channel_context, thread_context, user_message)?;
 
         // Prepare allowed tools.
 
@@ -146,12 +151,12 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .tools(tools.clone())
                 // TODO: This doesn't seem to work properly, so the OpenAI crate is likely messing up the correct web request.
                 // So, disregarding, for now.
-                //.text(text_config.clone())
+                .text(text_config.clone())
                 .input(input)
                 .build()?;
 
             let response = self.client.responses().create(request).await?;
-            let result = parse_openai_response(&response)?;
+            let result = parse_openai_structured_response(&response)?;
 
             // This may change, but for now, always break after one message.
             break result;
@@ -161,8 +166,52 @@ impl GenericLlmClient for OpenAiLlmClient {
     }
 }
 
+/// Parse the OpenAI text response (usually only web search available).
 #[instrument(skip_all)]
-pub fn parse_openai_response(response: &CreateResponseResponse) -> Res<Vec<LlmResponse>> {
+pub fn parse_openai_text_response(response: &CreateResponseResponse) -> Res<Vec<String>> {
+    let mut result = Vec::new();
+
+    info!("LLM text response has {} outputs.", response.output.len());
+    for output in &response.output {
+        match output {
+            OutputContent::Message(message) => {
+                info!("LLM text response has {} messages.", message.content.len());
+
+                for message_content in &message.content {
+                    match message_content {
+                        Content::OutputText(text) => {
+                            // TODO: Handle annotations if needed.
+                            if text.annotations.is_empty() {
+                                info!("LLM text response has no annotations.");
+                            } else {
+                                info!("LLM text response has {} annotations.", text.annotations.len());
+                            }
+
+                            // Just push the raw text, do not attempt to deserialize.
+                            result.push(text.text.clone());
+                        }
+                        Content::Refusal(reason) => {
+                            return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
+                        }
+                    }
+                }
+            }
+            OutputContent::WebSearchCall(web_search_call) => {
+                info!("Web search tool called in text response: {web_search_call:#?}");
+            }
+            _ => {
+                warn!("Unknown output in text response: {output:#?}");
+                return Err(anyhow::anyhow!("Unknown output type in text response"));
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Parse the OpenAI structured response (and, therefore, check for local tool calls).
+#[instrument(skip_all)]
+pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Res<Vec<LlmResponse>> {
     let mut result = Vec::new();
 
     info!("LLM response has {} outputs.", response.output.len());

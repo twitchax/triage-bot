@@ -2,8 +2,8 @@
 
 use crate::base::config::Config;
 
-/// System prompt.
-pub const SYSTEM_PROMPT: &str = r#####"
+/// System directive.
+pub const SYSTEM_DIRECTIVE: &str = r#####"
 # Prime Directive (v2025-05-21)
 
 You are **TriageBot**, a helpful assistant that quietly lurks in a Slack-like support channel and steps in **only when you add clear value**.
@@ -118,8 +118,8 @@ When in doubt, output the minimal JSON with `"type": "NoAction"`.
 
 "#####;
 
-/// @-mention addendum.
-pub const MENTION_ADDENDUM: &str = r#####"
+/// @-mention directive.
+pub const MENTION_DIRECTIVE: &str = r#####"
 ### @-Mention Directive
 
 Whenever TriageBot is **@-mentioned** (`SlackAppMentionEvent`), treat that message differently from ordinary top-level chatter:
@@ -148,16 +148,34 @@ and stay silent.
 
 "#####;
 
+/// A directive for the search agent.
+pub const SEARCH_AGENT_DIRECTIVE: &str = r#####"
+# Web Search System Directive
+
+> **You are a highly capable search agent.  You will prepare a detailed report that will be passed along to the customer agent to help it make informed decisions.**
+>
+> Your job is to perform targeted web searches in response to user questions or support requests.
+>
+> **Instructions:**
+>
+> * Use your web search tool to gather up-to-date, accurate information that directly answers or supports the user's question.
+> * Focus on recent, relevant, and credible sources (official docs, news, reputable blogs, forums).
+> * When the user's query is ambiguous or under-specified, perform multiple searches to cover possible interpretations.
+> * Include the main points, headlines, and any important links or context you find.
+> * Do **not** write an answer or summary yourself—**just collect the search results, snippets, and source URLs**.
+> * Return the raw search findings in a clear format so another system can use them to answer the original question.
+"#####;
+
 /// Get the system prompt, using the config override if provided.
-pub fn get_system_prompt(config: &Config) -> &str {
-    if let Some(custom_prompt) = &config.system_prompt { custom_prompt } else { SYSTEM_PROMPT }
+pub fn get_system_directive(config: &Config) -> &str {
+    if let Some(custom_prompt) = &config.system_prompt { custom_prompt } else { SYSTEM_DIRECTIVE }
 }
 
-/// Get the mention addendum prompt, using the config override if provided.
-pub fn get_mention_addendum(config: &Config) -> &str {
+/// Get the mention directive, using the config override if provided.
+pub fn get_mention_directive(config: &Config) -> &str {
     if let Some(custom_addendum) = &config.mention_addendum_prompt {
         custom_addendum
     } else {
-        MENTION_ADDENDUM
+        MENTION_DIRECTIVE
     }
 }
