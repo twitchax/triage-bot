@@ -38,7 +38,7 @@ jobs:
           echo "RUSTFLAGS=-C linker=clang -C link-arg=-fuse-ld=mold" >> $GITHUB_ENV
 
       - name: Build project
-        run: cargo build --release
+        run: cargo build
 
       - name: Run tests
-        run: cargo nextest run
+        run: cargo test
