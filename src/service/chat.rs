@@ -72,6 +72,46 @@ impl ChatClient {
         let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
         Ok(Self { inner: Arc::new(client) })
     }
+    
+    /// Creates a chat client from an existing Slack client implementation
+    /// This is primarily used for testing.
+    #[cfg(test)]
+    pub fn from_client(client: Arc<dyn SlackHyperClient>) -> Self {
+        // Create a simple mock implementation for testing
+        use super::*;
+        use async_trait::async_trait;
+        
+        struct TestChatClient {
+            client: Arc<dyn SlackHyperClient>,
+        }
+        
+        #[async_trait]
+        impl GenericChatClient for TestChatClient {
+            fn bot_user_id(&self) -> &str {
+                "UBOT123"
+            }
+            
+            async fn start(&self) -> Void {
+                Ok(())
+            }
+            
+            async fn send_message(&self, _channel_id: &str, _thread_ts: &str, _text: &str) -> Void {
+                Ok(())
+            }
+            
+            async fn react_to_message(&self, _channel_id: &str, _thread_ts: &str, _emoji: &str) -> Void {
+                Ok(())
+            }
+            
+            async fn get_thread_context(&self, _channel_id: &str, _thread_ts: &str) -> Res<String> {
+                Ok("[]".to_string())
+            }
+        }
+        
+        Self {
+            inner: Arc::new(TestChatClient { client }),
+        }
+    }
 }
 
 impl From<SlackChatClient> for ChatClient {
@@ -335,4 +375,74 @@ mod tests {
         let client = ChatClient { inner: Arc::new(mock) };
         client.send_message("C1", "t1", "hi").await.unwrap();
     }
+}
+
+/// User state structure for integration testing
+#[derive(Clone)]
+pub struct SlackClientEventsUserState {
+    pub db: DbClient,
+    pub llm: LlmClient,
+    pub chat_client: ChatClient,
+}
+
+/// Public version of handle_push_event for integration testing
+/// 
+/// This is a wrapper around the internal handle_push_event function that
+/// bypasses the socket mode listener environment and calls the handler directly.
+#[cfg(test)]
+pub async fn handle_push_event_for_testing(
+    event_callback: SlackPushEventCallback,
+    client: Arc<dyn SlackHyperClient>,
+    user_state: SlackClientEventsUserState
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let event = event_callback.event;
+    
+    match event {
+        SlackEventCallbackBody::Message(slack_message_event) => {
+            info!("Received message event ...");
+
+            // If the message @mentions the bot, skip, and let the app mention handler take care of it.
+            let text = slack_message_event.content.as_ref().map(|c| c.text.as_deref()).unwrap_or_default().unwrap_or_default();
+            if text.contains(&user_state.chat_client.bot_user_id()) {
+                warn!("Skipping message event because it mentions the bot.");
+                return Ok(());
+            }
+
+            // If the message is in a thread, skip, since we don't want the bot to respond unless it is mentioned in a thread.
+            if slack_message_event.origin.thread_ts.is_some() {
+                warn!("Skipping message event because it is in a thread.");
+                return Ok(());
+            }
+
+            let channel_id = slack_message_event.origin.channel.as_ref().ok_or(anyhow::anyhow!("Failed to get channel ID"))?.0.to_owned();
+            let thread_ts = slack_message_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;
+            interaction::chat_event::handle_chat_event(
+                slack_message_event,
+                channel_id,
+                thread_ts,
+                user_state.db.clone(),
+                user_state.llm.clone(),
+                user_state.chat_client.clone(),
+            );
+        }
+        SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
+            info!("Received app mention event ...");
+
+            let channel_id = slack_app_mention_event.channel.0.to_owned();
+            let thread_ts = slack_app_mention_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;
+            interaction::chat_event::handle_chat_event(
+                slack_app_mention_event,
+                channel_id,
+                thread_ts,
+                user_state.db.clone(),
+                user_state.llm.clone(),
+                user_state.chat_client.clone(),
+            );
+        }
+        _ => {
+            warn!("Received unhandled push event.")
+        }
+    }
+
+    Ok(())
 }

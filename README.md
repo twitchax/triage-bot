@@ -48,6 +48,20 @@ $ cargo install triage-bot
 $ cargo nextest run
 ```
 
+### Integration Tests
+
+Integration tests validate the end-to-end behavior of the application without mocking the LLM or database:
+
+```bash
+# Set your OpenAI API key for integration tests
+$ export OPENAI_API_KEY=your_api_key_here
+
+# Run the integration tests
+$ cargo nextest run --package triage-bot --test integration
+```
+
+> Note: Integration tests require a valid OpenAI API key. If the key is not available, the tests will be skipped.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
