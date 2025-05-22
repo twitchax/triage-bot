@@ -1,3 +1,9 @@
+//! Integration tests for the triage-bot.
+//!
+//! These tests verify the end-to-end functionality of the bot by directly
+//! calling the handlers with well-formed events, using the in-memory database mode,
+//! and using the actual LLM client without mocking (except for specific test cases).
+
 use std::sync::Arc;
 use std::time::Duration;
 
