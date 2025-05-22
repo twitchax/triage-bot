@@ -51,6 +51,7 @@ impl triage_bot::service::llm::GenericLlmClient for TestLlmClient {
         &self, 
         _self_id: &str, 
         _channel_prompt: &str, 
+        _channel_context: &str, 
         _thread_context: &str, 
         _user_message: &str
     ) -> Result<Vec<LlmResponse>, anyhow::Error> {
