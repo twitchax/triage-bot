@@ -7,6 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: index.crates.io,static.rust-lang.org,docs.rs
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     permissions:
       contents: read
     steps:
