@@ -2,6 +2,7 @@
 
 - Replace unit tests by factoring out non-client code, and unit testing that; then, tear out `mockall`.
 - Add integration tests.
+- Change the DB test implementation to use a separate implementation of `new`, and abstract the schema creation into a separate function.
 - Improve documentation.
 
 ## Cool Ideas
