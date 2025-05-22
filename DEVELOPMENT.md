@@ -1,11 +1,7 @@
 ## TODO
 
-- Change "update channel directive" and "update context" to MCP tools.
-- Add unit tests (likely use `mockall` for clients).
+- Replace unit tests by factoring out non-client code, and unit testing that; then, tear out `mockall`.
 - Add integration tests.
-- ~~Add CI build of binary.~~
-- ~~Add code coverage in CI.~~
-- Cleanup big methods (LLM completions should split out tool creation, etc.).
 - Improve documentation.
 
 ## Cool Ideas
