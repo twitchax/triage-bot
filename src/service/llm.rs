@@ -5,8 +5,11 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::base::config::Config;
-use crate::base::types::{LlmResponse, Res};
+use crate::base::types::{AssistantResponse, Res};
+use crate::base::{
+    config::Config,
+    types::{AssistantContext, WebSearchContext},
+};
 use anyhow::Context;
 use async_openai::{
     Client,
@@ -25,8 +28,10 @@ use tracing::{info, instrument, warn};
 /// Generic LLM client trait that clients must implement.
 #[async_trait]
 pub trait GenericLlmClient: Send + Sync + 'static {
-    /// Generate a response from a static system prompt and user message.
-    async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+    /// Execute a web search using the search agent.
+    async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+    /// Generate a response from the primary assistant model.
+    async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
 }
 
 // Structs.
@@ -75,13 +80,93 @@ impl OpenAiLlmClient {
         }
     }
 
-    /// Execute a search using the search agent
-    #[instrument(name = "OpenAiLlmClient::execute_search", skip_all)]
-    async fn execute_search(&self, user_message: &str) -> Res<String> {
+    /// Build the web search input.
+    #[instrument(name = "OpenAiLlmClient::build_web_search_input", skip_all)]
+    fn build_web_search_input(&self, context: &WebSearchContext) -> Res<ResponseInput> {
+        Ok(ResponseInput::Items(vec![
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::System)
+                    .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::User)
+                    .content(format!("# User Message\n\n{}\n\n", context.user_message))
+                    .build()?,
+            ),
+        ]))
+    }
+
+    /// Build the response input including search results.
+    #[instrument(name = "OpenAiLlmClient::build_response_input", skip_all)]
+    fn build_assistant_agent_input(&self, context: &AssistantContext) -> Res<ResponseInput> {
+        Ok(ResponseInput::Items(vec![
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::System)
+                    .content(format!("## Assistant Agent Mention Directive\n\n{}\n\n", self.config.assistant_agent_mention_directive))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Channel Directive\n\n{}\n\n", context.channel_directive))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Web Search Results\n\n{}\n\n", context.web_search_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::User)
+                    .content(format!("# User Message\n\n{}\n\n", context.user_message))
+                    .build()?,
+            ),
+        ]))
+    }
+}
+
+#[async_trait]
+impl GenericLlmClient for OpenAiLlmClient {
+    #[instrument(name = "OpenAiLlmClient::execute_web_search", skip_all)]
+    async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String> {
         // Create a search-specific prompt input
-        let search_input = ResponseInput::Items(vec![InputItem::Message(
-            InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?,
-        )]);
+        let input = self.build_web_search_input(context)?;
 
         // Prepare web search tools
         let search_tools = get_openai_search_tools().clone();
@@ -91,13 +176,13 @@ impl OpenAiLlmClient {
 
         // Create the request
         let request = CreateResponseRequestArgs::default()
-            .instructions(self.config.search_agent_directive.clone())
+            .instructions(self.config.search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .temperature(self.config.openai_search_agent_temperature)
             .model(&self.config.openai_search_agent_model)
             .tools(search_tools)
             .text(text_config)
-            .input(search_input)
+            .input(input)
             .build()?;
 
         // Execute the search request
@@ -110,63 +195,16 @@ impl OpenAiLlmClient {
         Ok(search_results.join("\n\n"))
     }
 
-    /// Build the response input including search results.
-    #[instrument(name = "OpenAiLlmClient::build_response_input", skip_all)]
-    fn build_response_input(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str, search_results: &str) -> Res<ResponseInput> {
-        Ok(ResponseInput::Items(vec![
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::System)
-                    .content(self.config.assistant_agent_mention_directive.clone())
-                    .build()?,
-            ),
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
-                    .content(format!("Your Channel Directive:\n\n{channel_directive}"))
-                    .build()?,
-            ),
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
-                    .content(format!("Your Channel Context:\n\n{channel_context}"))
-                    .build()?,
-            ),
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::Developer).content(format!("Your User ID: {self_id}")).build()?),
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
-                    .content(format!("Raw Thread Context:\n\n{thread_context}"))
-                    .build()?,
-            ),
-            InputItem::Message(
-                InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
-                    .content(format!("Search Results:\n\n{search_results}"))
-                    .build()?,
-            ),
-            InputItem::Message(InputMessageArgs::default().role(ResponsesRole::User).content(user_message.to_string()).build()?),
-        ]))
-    }
-}
-
-#[async_trait]
-impl GenericLlmClient for OpenAiLlmClient {
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
-    async fn generate_response(&self, self_id: &str, channel_directive: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>> {
-        // First, execute the search agent to gather relevant information
-        info!("Executing search agent with user message");
-        let search_results = self.execute_search(user_message).await?;
-        info!("Search agent completed, results length: {}", search_results.len());
-
+    async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>> {
         // Build the input with search results included
-        let input = self.build_response_input(self_id, channel_directive, channel_context, thread_context, user_message, &search_results)?;
+        let input = self.build_assistant_agent_input(context)?;
 
         // Prepare allowed tools.
 
         // The LLM often thinks it wants to update its context: let's not allow that unless the user explicitly asks for it.
-        let tools = if user_message.contains("remember") || user_message.contains("directive") {
+        let tools = if context.user_message.contains("remember") || context.user_message.contains("directive") {
             get_openai_assistant_tools()
         } else {
             get_openai_restricted_tools()
@@ -187,8 +225,6 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .model(&self.config.openai_assistant_agent_model)
                 .instructions(self.config.assistant_agent_system_directive.clone())
                 .tools(tools.clone())
-                // TODO: This doesn't seem to work properly, so the OpenAI crate is likely messing up the correct web request.
-                // So, disregarding, for now.
                 .text(text_config.clone())
                 .input(input)
                 .build()?;
@@ -249,7 +285,7 @@ pub fn parse_openai_text_response(response: &CreateResponseResponse) -> Res<Vec<
 
 /// Parse the OpenAI structured response (and, therefore, check for local tool calls).
 #[instrument(skip_all)]
-pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Res<Vec<LlmResponse>> {
+pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Res<Vec<AssistantResponse>> {
     let mut result = Vec::new();
 
     info!("LLM response has {} outputs.", response.output.len());
@@ -286,7 +322,7 @@ pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Re
                     let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
                     let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
 
-                    result.push(LlmResponse::UpdateChannelDirective { message });
+                    result.push(AssistantResponse::UpdateChannelDirective { message });
                 }
                 "update_channel_context" => {
                     info!("Update context tool called ...");
@@ -295,7 +331,7 @@ pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Re
                     let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
                     let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
 
-                    result.push(LlmResponse::UpdateContext { message });
+                    result.push(AssistantResponse::UpdateContext { message });
                 }
                 _ => {
                     warn!("Unknown function call: {function_call:#?}");
@@ -407,19 +443,41 @@ mod tests {
 
         #[async_trait]
         impl GenericLlmClient for Llm {
-            async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
+            async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+            async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
         }
     }
 
     #[tokio::test]
-    async fn llm_client_delegates_generate_response() {
+    async fn llm_client_delegates_get_assistant_agent_response() {
         let mut mock = MockLlm::new();
-        mock.expect_generate_response()
-            .with(eq("me"), eq("dir"), eq("ctx"), eq("thread"), eq("msg"))
+        mock.expect_get_assistant_agent_response()
+            .with(eq(AssistantContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "dir".to_string(),
+                thread_ts: "thread".to_string(),
+                channel_directive: "search".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+                web_search_context: "ctx".to_string(),
+            }))
             .times(1)
-            .returning(|_, _, _, _, _| Ok(vec![]));
+            .returning(|_| Ok(vec![]));
 
         let client = LlmClient { inner: Arc::new(mock) };
-        client.generate_response("me", "dir", "ctx", "thread", "msg").await.unwrap();
+        client
+            .get_assistant_agent_response(&AssistantContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "dir".to_string(),
+                thread_ts: "thread".to_string(),
+                channel_directive: "search".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+                web_search_context: "ctx".to_string(),
+            })
+            .await
+            .unwrap();
     }
 }

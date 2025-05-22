@@ -80,7 +80,7 @@ pub struct ConfigInner {
     pub assistant_agent_mention_directive: String,
     /// Optional custom search agent directive to override the default (`SEARCH_AGENT_DIRECTIVE`).
     #[serde(default = "default_search_agent_directive")]
-    pub search_agent_directive: String,
+    pub search_agent_system_directive: String,
     /// Sampling temperature to use for OpenAI search agent model (`OPENAI_SEARCH_AGENT_TEMPERATURE`).
     /// Value between 0 and 2. Higher values like 0.8 make output more random,
     /// while lower values like 0.2 make it more focused and deterministic.

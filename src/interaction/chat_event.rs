@@ -4,7 +4,7 @@ use serde::Serialize;
 use tracing::{Instrument, error, info, instrument, warn};
 
 use crate::{
-    base::types::{LlmClassification, Void},
+    base::types::{AssistantClassification, AssistantContext, AssistantResponse, Res, Void, WebSearchContext},
     service::{
         chat::ChatClient,
         db::{DbClient, LlmContext},
@@ -40,10 +40,12 @@ async fn handle_chat_event_internal<E>(event: E, channel_id: String, thread_ts: 
 where
     E: Serialize,
 {
+    let user_message = serde_json::to_string(&event).unwrap();
+
     // First, get the channel info from the database.
 
     let channel = db.get_or_create_channel(&channel_id).await?;
-    let channel_directive = &channel.channel_directive;
+    let channel_directive = serde_json::to_string(&channel.channel_directive)?;
 
     // Next, get the other context from the database.
 
@@ -52,20 +54,27 @@ where
     // TODO: Maybe we can also have context about specific users that we would also look up?
 
     // Get the thread context from the event.
+    // TODO: Now that we store the messages in the database, we can also get the thread context from the database (probably better).
     let thread_context = chat.get_thread_context(&channel_id, &thread_ts).await?;
 
-    // Call the LLM with the channel prompt and the message text.
+    // Compile all relevant context for the assistant agent.
 
-    let user_message = serde_json::to_string(&event).unwrap();
-    let responses = llm
-        .generate_response(
-            chat.bot_user_id(),
-            &serde_json::to_string(&channel_directive)?,
-            &serde_json::to_string(&channel_context)?,
-            &thread_context,
-            &user_message,
-        )
-        .await?;
+    let assistant_context = compile_contexts(
+        user_message.clone(),
+        chat.bot_user_id().to_string(),
+        channel_id.clone(),
+        thread_ts.clone(),
+        channel_directive.clone(),
+        channel_context.clone(),
+        thread_context.clone(),
+        db,
+        llm,
+        chat,
+    )
+    .await?;
+
+    // Call the assistant agent with all of the context.
+    let responses = llm.get_assistant_agent_response(&assistant_context).await?;
 
     // Take the proper action based on the response.
 
@@ -73,8 +82,8 @@ where
 
     for response in responses {
         match response {
-            crate::base::types::LlmResponse::NoAction => warn!("No action taken."),
-            crate::base::types::LlmResponse::UpdateChannelDirective { message } => {
+            AssistantResponse::NoAction => warn!("No action taken."),
+            AssistantResponse::UpdateChannelDirective { message } => {
                 info!("Updating channel directive ...");
 
                 let directive = LlmContext {
@@ -85,7 +94,7 @@ where
 
                 db.update_channel_directive(&channel_id, &directive).await?;
             }
-            crate::base::types::LlmResponse::UpdateContext { message } => {
+            AssistantResponse::UpdateContext { message } => {
                 info!("Updating context ...");
 
                 let context = LlmContext {
@@ -96,16 +105,16 @@ where
 
                 db.add_channel_context(&channel_id, &context).await?;
             }
-            crate::base::types::LlmResponse::ReplyToThread { thread_ts, classification, message } => {
+            AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
                 info!("Replying to thread ...");
 
                 // Set the emoji.
                 let emoji = match classification {
-                    LlmClassification::Question => "question",
-                    LlmClassification::Feature => "bulb",
-                    LlmClassification::Bug => "bug",
-                    LlmClassification::Incident => "warning",
-                    LlmClassification::Other => "grey_question",
+                    AssistantClassification::Question => "question",
+                    AssistantClassification::Feature => "bulb",
+                    AssistantClassification::Bug => "bug",
+                    AssistantClassification::Incident => "warning",
+                    AssistantClassification::Other => "grey_question",
                 };
 
                 let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
@@ -115,4 +124,62 @@ where
     }
 
     Ok(())
+}
+
+/// Kick off all of the "helper agents" to do their thing in parallel.
+///
+/// Builds a single context for the assistant agent to use.
+#[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
+async fn compile_contexts(
+    user_message: String,
+    bot_user_id: String,
+    channel_id: String,
+    thread_ts: String,
+    channel_directive: String,
+    channel_context: String,
+    thread_context: String,
+    db: &DbClient,
+    llm: &LlmClient,
+    chat: &ChatClient,
+) -> Res<AssistantContext> {
+    let mut tasks = vec![];
+
+    // Execute the search agent to gather relevant information.
+
+    let llm_clone = llm.clone();
+    let web_search_context = WebSearchContext {
+        user_message: user_message.clone(),
+        bot_user_id: bot_user_id.clone(),
+        channel_id: channel_id.clone(),
+        channel_context: channel_context.clone(),
+        thread_context: thread_context.clone(),
+    };
+
+    let search_agent_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(&web_search_context).await });
+    tasks.push(search_agent_task);
+
+    // Wait for all tasks to complete.
+
+    let results = futures::future::join_all(tasks)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Prepare results.
+
+    let agent_responses = AssistantContext {
+        user_message,
+        bot_user_id,
+        web_search_context: results[0].clone(),
+        channel_id,
+        thread_ts,
+        channel_directive,
+        channel_context,
+        thread_context,
+    };
+
+    Ok(agent_responses)
 }

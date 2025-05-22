@@ -31,7 +31,7 @@ pub trait GenericDbClient: Send + Sync + 'static {
     /// Adds a message to the database that can then be retrieved by the bot.
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
     /// Gets additional context for the channel.
-    async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>>;
+    async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
 }
 
 /// Database client for triage-bot.
@@ -213,7 +213,7 @@ impl GenericDbClient for SurrealDbClient {
     }
 
     #[instrument(skip(self))]
-    async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>> {
+    async fn get_channel_context(&self, channel_id: &str) -> Res<String> {
         let context: Vec<LlmContext> = self
             .db
             .query("SELECT * FROM type::thing('channel', $channel_id)->has_context->context;")
@@ -221,9 +221,11 @@ impl GenericDbClient for SurrealDbClient {
             .await?
             .take(0)?;
 
+        let result = serde_json::to_string(&context)?;
+
         info!("Retrieved context for channel `{}`.", channel_id);
 
-        Ok(context)
+        Ok(result)
     }
 }
 
