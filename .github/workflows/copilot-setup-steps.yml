@@ -21,6 +21,11 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.4
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: "true"
+
       - name: Install mold linker
         run: |
           sudo apt-get update
