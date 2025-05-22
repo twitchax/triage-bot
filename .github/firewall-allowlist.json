@@ -1,0 +1,6 @@
+{
+  "allowed_hosts": [
+    "static.rust-lang.org",
+    "index.crates.io"
+  ]
+}
