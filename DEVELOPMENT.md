@@ -1,13 +1,13 @@
 ## TODO
 
+- Consider adding an "agent per task".  One agent searches web.  One agent returns a message search query.  One agent goes to glean, etc.?  Maybe a good argument for making an "agent abstraction" that wraps the llm client.  That way tools, setup, etc., are all abstracted away.
+- Put all messages into the database so that they can be searched.
+- Add context to search agent.
 - Replace unit tests by factoring out non-client code, and unit testing that; then, tear out `mockall`.
-- Add integration tests.
-- Change the DB test implementation to use a separate implementation of `new`, and abstract the schema creation into a separate function.
+- Add more integration tests.
 - Improve documentation.
 
 ## Cool Ideas
-
-- Have multiple agents: essentially, have a `gpt-4.1` agent (with its own prompt) that calls tools for context, and prepares a "report" for a reasoning model like `o3` to consume (with its own prompt).
 
 ## Fly Deploy Notes
 

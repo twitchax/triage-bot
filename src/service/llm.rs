@@ -24,7 +24,7 @@ use tracing::{info, instrument, warn};
 
 /// Generic LLM client trait that clients must implement.
 #[async_trait]
-pub trait GenericLlmClient {
+pub trait GenericLlmClient: Send + Sync + 'static {
     /// Generate a response from a static system prompt and user message.
     async fn generate_response(&self, self_id: &str, channel_prompt: &str, channel_context: &str, thread_context: &str, user_message: &str) -> Res<Vec<LlmResponse>>;
 }
@@ -36,11 +36,11 @@ pub trait GenericLlmClient {
 /// This is trivially cloneable and can be passed around without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
 pub struct LlmClient {
-    inner: Arc<dyn GenericLlmClient + Send + Sync + 'static>,
+    inner: Arc<dyn GenericLlmClient>,
 }
 
 impl Deref for LlmClient {
-    type Target = dyn GenericLlmClient + Send + Sync + 'static;
+    type Target = dyn GenericLlmClient;
 
     fn deref(&self) -> &Self::Target {
         &*self.inner
@@ -91,6 +91,7 @@ impl OpenAiLlmClient {
 
         // Create the request
         let request = CreateResponseRequestArgs::default()
+            .instructions(self.config.search_agent_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .temperature(self.config.openai_search_agent_temperature)
             .model(&self.config.openai_search_agent_model)

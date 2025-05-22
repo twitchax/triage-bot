@@ -1,24 +1,23 @@
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use triage_bot::{
     base::config::{Config, ConfigInner},
     runtime::Runtime,
-    service::{
-        chat::ChatClient,
-        db::DbClient,
-        llm::LlmClient,
-    },
+    service::{chat::ChatClient, db::DbClient, llm::LlmClient},
 };
 
-// Create a helper function to setup the test environment
+/// Helper function to setup the test environment.
+#[cfg(test)]
 async fn setup_test_environment() -> Runtime {
     // Create a test configuration
     // Note: The actual OpenAI API key should be set via environment variable
     let config = Config {
         inner: Arc::new(ConfigInner {
             openai_api_key: std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()),
-            openai_search_agent_model: "gpt-3.5-turbo".to_string(),
-            openai_assistant_agent_model: "gpt-3.5-turbo".to_string(),
+            openai_search_agent_model: "gpt-4.1-nano".to_string(),
+            openai_assistant_agent_model: "gpt-4.1-nano".to_string(),
             openai_search_agent_temperature: 0.0,
             openai_assistant_agent_temperature: 0.7,
             openai_max_tokens: 500u32, // Using a smaller value for tests
@@ -32,33 +31,32 @@ async fn setup_test_environment() -> Runtime {
         }),
     };
 
-    // Initialize the database and LLM client
-    let db = DbClient::surreal(&config).await.expect("Failed to create DB client");
+    // Initialize the database (using in-memory for tests).
+    let db = DbClient::surreal_memory().await.expect("Failed to create DB client");
+
+    // Initialize the LLM client (using real OpenAI key for tests).
     let llm = LlmClient::openai(&config);
-    
-    // We can't easily create a mock ChatClient since it has private fields,
-    // so for the integration test we'll use the real client but with mock config values
-    let chat = ChatClient::slack(&config, db.clone(), llm.clone()).await.expect("Failed to create chat client");
-    
+
+    // We create a mocked version of the chat client that just returns success on all calls.
+    let chat = ChatClient::mock();
+
     Runtime { config, db, llm, chat }
 }
 
 #[tokio::test]
-#[ignore] // Ignore by default since it requires an OpenAI API key
 async fn test_app_mention_integration() {
-    // Skip test if no OpenAI API key is provided
-    if std::env::var("OPENAI_API_KEY").is_err() {
-        println!("Skipping integration test - no OpenAI API key provided");
-        return;
-    }
-    
     // Set up the test environment
     let runtime = setup_test_environment().await;
-    
+
+    // Fail if the openai_api_key is not set.
+    if runtime.config.inner.openai_api_key == "test_key" {
+        panic!("OPENAI_API_KEY is not set. Please set it in your environment.");
+    }
+
     // Create a test channel
     let channel_id = "C01TEST";
     let thread_ts = "1234567890.123456";
-    
+
     // Create a simple test message that we can serialize
     // We don't need to match the exact structure as long as it can be serialized to JSON
     // The LLM will process whatever JSON structure we provide
@@ -70,7 +68,7 @@ async fn test_app_mention_integration() {
         "channel": channel_id,
         "event_ts": "1234567890.123456",
     });
-    
+
     // Call the handler directly
     triage_bot::interaction::chat_event::handle_chat_event(
         test_message,
@@ -80,17 +78,17 @@ async fn test_app_mention_integration() {
         runtime.llm.clone(),
         runtime.chat.clone(),
     );
-    
+
     // Give the async task some time to complete
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-    
+
     // Verify the channel was created in the database
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
-    
+
     // Verify that the channel directive exists
     let directive_json = serde_json::to_string(&channel.channel_directive).unwrap();
     assert!(!directive_json.is_empty());
-    
+
     // Verify that we can get the channel context
     let context = runtime.db.get_channel_context(channel_id).await.expect("Failed to get context");
     assert!(!context.is_empty() || context.is_empty()); // Check that context exists (can be empty)

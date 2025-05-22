@@ -10,6 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
+use mockall::mock;
 use slack_morphism::{errors::SlackClientError, prelude::*};
 use tracing::{info, instrument, warn};
 
@@ -26,7 +27,7 @@ type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsCon
 
 /// Generic "chat" trait that clients must implement.
 #[async_trait]
-pub trait GenericChatClient {
+pub trait GenericChatClient: Send + Sync + 'static {
     /// Get the bot user ID.
     fn bot_user_id(&self) -> &str;
     /// Start the chat client listener.
@@ -55,11 +56,11 @@ struct SlackUserState {
 /// without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
 pub struct ChatClient {
-    inner: Arc<dyn GenericChatClient + Send + Sync + 'static>,
+    inner: Arc<dyn GenericChatClient>,
 }
 
 impl Deref for ChatClient {
-    type Target = dyn GenericChatClient + Send + Sync + 'static;
+    type Target = dyn GenericChatClient;
 
     fn deref(&self) -> &Self::Target {
         &*self.inner
@@ -71,6 +72,12 @@ impl ChatClient {
     pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
         let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
         Ok(Self { inner: Arc::new(client) })
+    }
+
+    /// Creates a new mocked chat client for testing.
+    pub fn mock() -> Self {
+        let client = get_mock_chat();
+        Self { inner: Arc::new(client) }
     }
 }
 
@@ -85,12 +92,12 @@ impl From<SlackChatClient> for ChatClient {
 /// Slack client implementation.
 #[derive(Clone)]
 struct SlackChatClient {
-    app_token: SlackApiToken,
-    bot_token: SlackApiToken,
-    bot_user_id: String,
-    client: Arc<FullClient>,
-    db: DbClient,
-    llm: LlmClient,
+    pub app_token: SlackApiToken,
+    pub bot_token: SlackApiToken,
+    pub bot_user_id: String,
+    pub client: Arc<FullClient>,
+    pub db: DbClient,
+    pub llm: LlmClient,
 }
 
 impl Deref for SlackChatClient {
@@ -309,23 +316,40 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
     Ok(())
 }
 
+// Mock chat client for testing.
+
+mock! {
+    pub Chat {}
+
+    #[async_trait]
+    impl GenericChatClient for Chat {
+        fn bot_user_id(&self) -> &str;
+        async fn start(&self) -> Void;
+        async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+        async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
+        async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+    }
+}
+
+fn get_mock_chat() -> MockChat {
+    let mut mock = MockChat::new();
+
+    mock.expect_bot_user_id().return_const("U12345".to_string());
+    mock.expect_start().returning(|| Ok(()));
+    mock.expect_send_message().returning(|_, _, _| Ok(()));
+    mock.expect_react_to_message().returning(|_, _, _| Ok(()));
+    mock.expect_get_thread_context().returning(|_, _| Ok("Some context.".to_string()));
+
+    mock
+}
+
+// Tests.
+
 #[cfg(test)]
 mod tests {
+    use mockall::predicate::eq;
+
     use super::*;
-    use mockall::{mock, predicate::*};
-
-    mock! {
-        pub Chat {}
-
-        #[async_trait]
-        impl GenericChatClient for Chat {
-            fn bot_user_id(&self) -> &str;
-            async fn start(&self) -> Void;
-            async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
-            async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
-            async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
-        }
-    }
 
     #[tokio::test]
     async fn chat_client_delegates_send_message() {

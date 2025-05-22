@@ -10,12 +10,9 @@ use anyhow::{Ok, anyhow};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-#[cfg(test)]
-use surrealdb::engine::local::{Db as DbConnection, Mem};
-use surrealdb::{RecordId, Surreal};
-#[cfg(not(test))]
 use surrealdb::{
-    engine::remote::ws::{Client as DbConnection, Ws},
+    Connection, RecordId, Surreal,
+    engine::any::{self, Any},
     opt::auth::Root,
 };
 use tracing::{info, instrument};
@@ -24,7 +21,7 @@ use tracing::{info, instrument};
 
 /// Generic database client trait that clients must implement.
 #[async_trait]
-pub trait GenericDbClient {
+pub trait GenericDbClient: Send + Sync + 'static {
     /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
     /// Updates the channel prompt in the database.
@@ -41,11 +38,11 @@ pub trait GenericDbClient {
 #[derive(Clone)]
 pub struct DbClient {
     /// The database client instance.
-    inner: Arc<dyn GenericDbClient + Send + Sync + 'static>,
+    pub inner: Arc<dyn GenericDbClient>,
 }
 
 impl Deref for DbClient {
-    type Target = dyn GenericDbClient + Send + Sync + 'static;
+    type Target = dyn GenericDbClient;
 
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref()
@@ -56,7 +53,14 @@ impl DbClient {
     /// Create a new database client.
     #[instrument(skip_all)]
     pub async fn surreal(config: &Config) -> Res<Self> {
-        let db = SurrealDbClient::new(config).await?;
+        let db = SurrealDbClient::new(Some(config)).await?;
+        Ok(Self { inner: Arc::new(db) })
+    }
+
+    /// Create a new in-memory database client.
+    #[instrument(skip_all)]
+    pub async fn surreal_memory() -> Res<Self> {
+        let db = SurrealDbClient::new(None).await?;
         Ok(Self { inner: Arc::new(db) })
     }
 }
@@ -84,11 +88,11 @@ pub struct Channel {
 
 /// Database client for SurrealDB.
 pub struct SurrealDbClient {
-    db: Surreal<DbConnection>,
+    db: Surreal<Any>,
 }
 
 impl Deref for SurrealDbClient {
-    type Target = Surreal<DbConnection>;
+    type Target = Surreal<Any>;
 
     fn deref(&self) -> &Self::Target {
         &self.db
@@ -102,39 +106,22 @@ impl SurrealDbClient {
     /// want to connect to a persistent database.
     #[instrument(name = "SurrealDbClient::new", skip_all)]
     #[allow(unused_variables)]
-    pub async fn new(config: &Config) -> Res<Self> {
-        // Create the database connection
-        #[cfg(not(test))]
-        let db = Surreal::new::<Ws>(&config.db_endpoint).await?;
-        #[cfg(test)]
-        let db = Surreal::new::<Mem>(()).await?;
+    pub async fn new(config: Option<&Config>) -> Res<Self> {
+        let db = if let Some(config) = config {
+            let db = any::connect(&config.db_endpoint).await?;
 
-        // Authenticate with the database using the provided username and password.
-        #[cfg(not(test))]
-        db.signin(Root {
-            username: &config.db_username,
-            password: &config.db_password,
-        })
-        .await?;
+            db.signin(Root {
+                username: &config.db_username,
+                password: &config.db_password,
+            })
+            .await?;
 
-        // Use a specific namespace and database
-        db.use_ns("triage").use_db("bot").await?;
+            db
+        } else {
+            any::connect("memory").await?
+        };
 
-        // Define schemas.
-
-        // Schema for contexts.
-        db.query("DEFINE TABLE context SCHEMAFULL").await?;
-        db.query("DEFINE FIELD user_message ON context FLEXIBLE TYPE object;").await?;
-        db.query("DEFINE FIELD your_notes ON context TYPE string;").await?;
-
-        // Schema for list of channels that the bot has been "added to" (@-mentioned).
-        db.query("DEFINE TABLE channel SCHEMAFULL").await?;
-        db.query("DEFINE FIELD channel_directive ON channel TYPE object;").await?;
-        db.query("DEFINE FIELD channel_directive.user_message ON channel FLEXIBLE TYPE object;").await?;
-        db.query("DEFINE FIELD channel_directive.your_notes ON channel TYPE string;").await?;
-
-        // Schema for the relation between channels and contexts.
-        db.query("DEFINE TABLE has_context TYPE RELATION IN channel OUT context;").await?;
+        setup_surreal_db(&db).await?;
 
         info!("Database initialized successfully.");
 
@@ -212,33 +199,39 @@ impl GenericDbClient for SurrealDbClient {
     }
 }
 
+// Helpers.
+
+/// Set up the surreal database.
+async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
+    // Use a specific namespace and database
+    db.use_ns("triage").use_db("bot").await?;
+
+    // Define schemas.
+
+    // Schema for contexts.
+    db.query("DEFINE TABLE context SCHEMAFULL").await?;
+    db.query("DEFINE FIELD user_message ON context FLEXIBLE TYPE object;").await?;
+    db.query("DEFINE FIELD your_notes ON context TYPE string;").await?;
+
+    // Schema for list of channels that the bot has been "added to" (@-mentioned).
+    db.query("DEFINE TABLE channel SCHEMAFULL").await?;
+    db.query("DEFINE FIELD channel_directive ON channel TYPE object;").await?;
+    db.query("DEFINE FIELD channel_directive.user_message ON channel FLEXIBLE TYPE object;").await?;
+    db.query("DEFINE FIELD channel_directive.your_notes ON channel TYPE string;").await?;
+
+    // Schema for the relation between channels and contexts.
+    db.query("DEFINE TABLE has_context TYPE RELATION IN channel OUT context;").await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::base::config::{Config, ConfigInner};
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_create_channel() {
-        let cfg = Config {
-            inner: Arc::new(ConfigInner {
-                openai_api_key: String::new(),
-                openai_search_agent_model: "test".to_string(),
-                openai_assistant_agent_model: "test".to_string(),
-                openai_search_agent_temperature: 0.0,
-                openai_assistant_agent_temperature: 0.7,
-                openai_max_tokens: 2048u32,
-                slack_app_token: String::new(),
-                slack_bot_token: String::new(),
-                slack_signing_secret: String::new(),
-                db_endpoint: String::new(),
-                db_username: String::new(),
-                db_password: String::new(),
-                ..Default::default()
-            }),
-        };
-
-        let client = SurrealDbClient::new(&cfg).await.unwrap();
+        let client = DbClient::surreal_memory().await.unwrap();
         let channel = client.get_or_create_channel("C1").await.unwrap();
         assert!(dbg!(serde_json::to_string(&channel.channel_directive).unwrap()).contains("Channel directive has not been set yet."));
 
