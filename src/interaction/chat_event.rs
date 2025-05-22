@@ -1,3 +1,5 @@
+//! This module handles the storage of messages in the database.
+
 use serde::Serialize;
 use tracing::{Instrument, error, info, instrument, warn};
 
@@ -10,6 +12,12 @@ use crate::{
     },
 };
 
+/// Handles the chat event.
+///
+/// This function is responsible for processing chat events and taking appropriate actions based on the responses from the LLM.
+/// It spawns a new task to handle the event asynchronously.
+/// It first retrieves the channel information and context from the database, then generates a response using the LLM,
+/// and finally takes action based on the response.
 #[instrument(skip_all)]
 pub fn handle_chat_event<E>(event: E, channel_id: String, thread_ts: String, db: DbClient, llm: LlmClient, chat: ChatClient)
 where
@@ -26,6 +34,7 @@ where
     });
 }
 
+/// Internal function to handle the chat event.
 #[instrument(skip_all)]
 async fn handle_chat_event_internal<E>(event: E, channel_id: String, thread_ts: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
 where

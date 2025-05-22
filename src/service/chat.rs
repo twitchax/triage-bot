@@ -264,6 +264,10 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
     match event {
         SlackEventCallbackBody::Message(slack_message_event) => {
             info!("Received message event ...");
+            let channel_id = slack_message_event.origin.channel.as_ref().ok_or(anyhow::anyhow!("Failed to get channel ID"))?.0.to_owned();
+
+            // No matter what, we are going to store the message in the database for future reference.
+            interaction::message_storage::handle_message_storage(slack_message_event.clone(), channel_id.clone(), user_state.db.clone());
 
             // If the message @mentions the bot, skip, and let the app mention handler take care of it.
             let text = slack_message_event.content.as_ref().map(|c| c.text.as_deref()).unwrap_or_default().unwrap_or_default();
@@ -278,7 +282,6 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
                 return Ok(());
             }
 
-            let channel_id = slack_message_event.origin.channel.as_ref().ok_or(anyhow::anyhow!("Failed to get channel ID"))?.0.to_owned();
             let thread_ts = slack_message_event.origin.thread_ts.clone().unwrap_or(SlackTs("".to_string())).0;
             interaction::chat_event::handle_chat_event(
                 slack_message_event,

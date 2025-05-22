@@ -28,6 +28,8 @@ pub trait GenericDbClient: Send + Sync + 'static {
     async fn update_channel_directive(&self, channel_id: &str, directive: &LlmContext) -> Res<()>;
     /// Adds a context JSON to the channel via a `has_context` edge.
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()>;
+    /// Adds a message to the database that can then be retrieved by the bot.
+    async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
     /// Gets additional context for the channel.
     async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>>;
 }
@@ -82,6 +84,14 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
     pub channel_directive: LlmContext,
+}
+
+/// A message in the database.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Message {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<RecordId>,
+    pub message: Value,
 }
 
 // SurrealDB client implementation.
@@ -184,6 +194,24 @@ impl GenericDbClient for SurrealDbClient {
         Ok(())
     }
 
+    #[instrument(skip(self, message))]
+    async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()> {
+        let _ = self
+            .db
+            .query("BEGIN TRANSACTION;")
+            .query("LET $channel = type::thing('channel', $channel_id);")
+            .query("LET $message = (CREATE message CONTENT $message_content).id;")
+            .query("RELATE $channel->has_message->$message;")
+            .query("COMMIT;")
+            .bind(("message_content", message.clone()))
+            .bind(("channel_id", channel_id.to_string()))
+            .await?;
+
+        info!("Added message for channel `{}`.", channel_id);
+
+        Ok(())
+    }
+
     #[instrument(skip(self))]
     async fn get_channel_context(&self, channel_id: &str) -> Res<Vec<LlmContext>> {
         let context: Vec<LlmContext> = self
@@ -206,12 +234,14 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
     // Use a specific namespace and database
     db.use_ns("triage").use_db("bot").await?;
 
-    // Define schemas.
-
     // Schema for contexts.
     db.query("DEFINE TABLE context SCHEMAFULL").await?;
     db.query("DEFINE FIELD user_message ON context FLEXIBLE TYPE object;").await?;
     db.query("DEFINE FIELD your_notes ON context TYPE string;").await?;
+
+    // Schema for messages.
+    db.query("DEFINE TABLE message SCHEMAFULL").await?;
+    db.query("DEFINE FIELD message ON message FLEXIBLE TYPE object;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;
@@ -221,6 +251,9 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
 
     // Schema for the relation between channels and contexts.
     db.query("DEFINE TABLE has_context TYPE RELATION IN channel OUT context;").await?;
+
+    // Schema for the relation between channels and messages.
+    db.query("DEFINE TABLE has_message TYPE RELATION IN channel OUT message;").await?;
 
     Ok(())
 }
