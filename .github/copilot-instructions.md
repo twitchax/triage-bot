@@ -7,7 +7,7 @@ This repository is configured to work seamlessly with GitHub Copilot. This docum
 We've included a script to help you set up your development environment. Run:
 
 ```bash
-./scripts/setup_copilot_env.sh
+../scripts/setup_copilot_env.sh
 ```
 
 This script will:
@@ -37,7 +37,7 @@ cargo build
 Run tests with:
 
 ```bash
-cargo test
+cargo nextest run
 ```
 
 ## GitHub Actions Workflow
