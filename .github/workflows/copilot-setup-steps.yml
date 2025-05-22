@@ -3,7 +3,7 @@ name: GitHub Copilot Setuo Steps
 on: workflow_dispatch
 
 jobs:
-  copilot:
+  copilot-setup-steps:
     runs-on: ubuntu-latest
     env:
       COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS: index.crates.io,static.rust-lang.org,docs.rs
