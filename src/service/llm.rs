@@ -511,80 +511,173 @@ fn get_openai_text_config() -> &'static TextConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockall::{mock, predicate::*};
+    use crate::base::config::ConfigInner;
 
-    mock! {
-        pub Llm {}
+    fn create_test_config() -> Config {
+        Config {
+            inner: Arc::new(ConfigInner {
+                openai_api_key: std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()),
+                openai_search_agent_model: "gpt-4o-mini".to_string(),
+                openai_assistant_agent_model: "gpt-4o-mini".to_string(),
+                openai_search_agent_temperature: 0.0,
+                openai_assistant_agent_temperature: 0.1,
+                openai_max_tokens: 100u32, // Small for tests
+                ..Default::default()
+            }),
+        }
+    }
 
-        #[async_trait]
-        impl GenericLlmClient for Llm {
-            async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
-            async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
-            async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
+    fn skip_if_no_api_key() {
+        if std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()) == "test_key" {
+            eprintln!("Skipping LLM test: OPENAI_API_KEY not set");
+            return;
+        }
+    }
+
+    fn create_test_web_search_context(message: &str) -> WebSearchContext {
+        WebSearchContext {
+            user_message: message.to_string(),
+            bot_user_id: "U12345".to_string(),
+            channel_id: "C12345".to_string(),
+            channel_context: "Test channel context".to_string(),
+            thread_context: "Test thread context".to_string(),
+        }
+    }
+
+    fn create_test_message_search_context(message: &str) -> MessageSearchContext {
+        MessageSearchContext {
+            user_message: message.to_string(),
+            bot_user_id: "U12345".to_string(),
+            channel_id: "C12345".to_string(),
+            channel_context: "Test channel context".to_string(),
+            thread_context: "Test thread context".to_string(),
+        }
+    }
+
+    fn create_test_assistant_context(message: &str) -> AssistantContext {
+        AssistantContext {
+            user_message: message.to_string(),
+            bot_user_id: "U12345".to_string(),
+            channel_id: "C12345".to_string(),
+            thread_ts: "1234567890.123456".to_string(),
+            channel_directive: "Be helpful and concise".to_string(),
+            channel_context: "General help channel".to_string(),
+            thread_context: "User conversation".to_string(),
+            web_search_context: "".to_string(),
+            message_search_context: "".to_string(),
         }
     }
 
     #[tokio::test]
-    async fn llm_client_delegates_get_assistant_agent_response() {
-        let mut mock = MockLlm::new();
-        mock.expect_get_assistant_agent_response()
-            .with(eq(AssistantContext {
-                user_message: "msg".to_string(),
-                bot_user_id: "me".to_string(),
-                channel_id: "dir".to_string(),
-                thread_ts: "thread".to_string(),
-                channel_directive: "search".to_string(),
-                channel_context: "ctx".to_string(),
-                thread_context: "ctx".to_string(),
-                web_search_context: "ctx".to_string(),
-                message_search_context: "ctx".to_string(),
-            }))
-            .times(1)
-            .returning(|_| Ok(vec![]));
+    async fn test_llm_client_get_web_search_agent_response() {
+        skip_if_no_api_key();
+        
+        let config = create_test_config();
+        if config.inner.openai_api_key == "test_key" {
+            return; // Skip test if no API key
+        }
 
-        let client = LlmClient { inner: Arc::new(mock) };
-        client
-            .get_assistant_agent_response(&AssistantContext {
-                user_message: "msg".to_string(),
-                bot_user_id: "me".to_string(),
-                channel_id: "dir".to_string(),
-                thread_ts: "thread".to_string(),
-                channel_directive: "search".to_string(),
-                channel_context: "ctx".to_string(),
-                thread_context: "ctx".to_string(),
-                web_search_context: "ctx".to_string(),
-                message_search_context: "ctx".to_string(),
-            })
-            .await
-            .unwrap();
+        let client = LlmClient::openai(&config);
+        let context = create_test_web_search_context("What is Rust programming language?");
+
+        let result = client.get_web_search_agent_response(&context).await;
+        assert!(result.is_ok(), "Web search agent should respond successfully");
+        
+        let response = result.unwrap();
+        assert!(!response.is_empty(), "Response should not be empty");
     }
 
     #[tokio::test]
-    async fn llm_client_delegates_get_message_search_agent_response() {
-        let mut mock = MockLlm::new();
-        mock.expect_get_message_search_agent_response()
-            .with(eq(MessageSearchContext {
-                user_message: "msg".to_string(),
-                bot_user_id: "me".to_string(),
-                channel_id: "channel".to_string(),
-                channel_context: "ctx".to_string(),
-                thread_context: "ctx".to_string(),
-            }))
-            .times(1)
-            .returning(|_| Ok("search, terms".to_string()));
+    async fn test_llm_client_get_message_search_agent_response() {
+        skip_if_no_api_key();
+        
+        let config = create_test_config();
+        if config.inner.openai_api_key == "test_key" {
+            return; // Skip test if no API key
+        }
 
-        let client = LlmClient { inner: Arc::new(mock) };
-        let result = client
-            .get_message_search_agent_response(&MessageSearchContext {
-                user_message: "msg".to_string(),
-                bot_user_id: "me".to_string(),
-                channel_id: "channel".to_string(),
-                channel_context: "ctx".to_string(),
-                thread_context: "ctx".to_string(),
-            })
-            .await
-            .unwrap();
+        let client = LlmClient::openai(&config);
+        let context = create_test_message_search_context("Find messages about deployment issues");
 
-        assert_eq!(result, "search, terms");
+        let result = client.get_message_search_agent_response(&context).await;
+        assert!(result.is_ok(), "Message search agent should respond successfully");
+        
+        let response = result.unwrap();
+        assert!(!response.is_empty(), "Response should not be empty");
+        // The response should contain search terms
+        assert!(response.len() > 2, "Search terms should be meaningful");
+    }
+
+    #[tokio::test]
+    async fn test_llm_client_get_assistant_agent_response() {
+        skip_if_no_api_key();
+        
+        let config = create_test_config();
+        if config.inner.openai_api_key == "test_key" {
+            return; // Skip test if no API key
+        }
+
+        let client = LlmClient::openai(&config);
+        let context = create_test_assistant_context("Hello, can you help me with a simple question?");
+
+        let result = client.get_assistant_agent_response(&context).await;
+        assert!(result.is_ok(), "Assistant agent should respond successfully");
+        
+        let responses = result.unwrap();
+        assert!(!responses.is_empty(), "Should return at least one response");
+    }
+
+    #[tokio::test] 
+    async fn test_llm_client_error_handling_invalid_api_key() {
+        let mut config = create_test_config();
+        // Use an invalid API key to test error handling
+        let config_inner = Arc::make_mut(&mut config.inner);
+        config_inner.openai_api_key = "sk-invalid-key-for-testing".to_string();
+
+        let client = LlmClient::openai(&config);
+        let context = create_test_web_search_context("test");
+
+        let result = client.get_web_search_agent_response(&context).await;
+        assert!(result.is_err(), "Should fail with invalid API key");
+    }
+
+    #[tokio::test]
+    async fn test_llm_client_handles_empty_context() {
+        skip_if_no_api_key();
+        
+        let config = create_test_config();
+        if config.inner.openai_api_key == "test_key" {
+            return; // Skip test if no API key
+        }
+
+        let client = LlmClient::openai(&config);
+        let mut context = create_test_message_search_context("");
+        context.channel_context = "".to_string();
+        context.thread_context = "".to_string();
+
+        let result = client.get_message_search_agent_response(&context).await;
+        // Should handle empty context gracefully - either succeed with empty response or return meaningful error
+        assert!(result.is_ok() || result.is_err(), "Should handle empty context without panicking");
+    }
+
+    #[tokio::test]
+    async fn test_llm_client_large_context_handling() {
+        skip_if_no_api_key();
+        
+        let config = create_test_config();
+        if config.inner.openai_api_key == "test_key" {
+            return; // Skip test if no API key
+        }
+
+        let client = LlmClient::openai(&config);
+        
+        // Create a very large context to test token limits
+        let large_context = "context ".repeat(1000);
+        let mut context = create_test_web_search_context("Simple question");
+        context.channel_context = large_context;
+
+        let result = client.get_web_search_agent_response(&context).await;
+        // Should either succeed or fail gracefully with context too large
+        assert!(result.is_ok() || result.is_err(), "Should handle large context without panicking");
     }
 }

@@ -340,11 +340,140 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_client_delegates_send_message() {
+    async fn test_chat_client_send_message() {
         let mut mock = MockChat::new();
-        mock.expect_send_message().with(eq("C1"), eq("t1"), eq("hi")).times(1).returning(|_, _, _| Ok(()));
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq("Hello world"))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
 
         let client = ChatClient { inner: Arc::new(mock) };
-        client.send_message("C1", "t1", "hi").await.unwrap();
+        client.send_message("C1", "t1", "Hello world").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_react_to_message() {
+        let mut mock = MockChat::new();
+        mock.expect_react_to_message()
+            .with(eq("C1"), eq("t1"), eq("thumbsup"))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        client.react_to_message("C1", "t1", "thumbsup").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_get_thread_context() {
+        let mut mock = MockChat::new();
+        mock.expect_get_thread_context()
+            .with(eq("C1"), eq("t1"))
+            .times(1)
+            .returning(|_, _| Ok("Thread context data".to_string()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        let result = client.get_thread_context("C1", "t1").await.unwrap();
+        assert_eq!(result, "Thread context data");
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_bot_user_id() {
+        let mut mock = MockChat::new();
+        mock.expect_bot_user_id()
+            .times(1)
+            .return_const("U12345".to_string());
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        let result = client.bot_user_id();
+        assert_eq!(result, "U12345");
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_start() {
+        let mut mock = MockChat::new();
+        mock.expect_start()
+            .times(1)
+            .returning(|| Ok(()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        client.start().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_error_handling() {
+        let mut mock = MockChat::new();
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq("error test"))
+            .times(1)
+            .returning(|_, _, _| Err(anyhow::anyhow!("Network error")));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        let result = client.send_message("C1", "t1", "error test").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_multiple_calls() {
+        let mut mock = MockChat::new();
+        
+        // Setup multiple expectations
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq("First message"))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+            
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq("Second message"))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        mock.expect_react_to_message()
+            .with(eq("C1"), eq("t1"), eq("checkmark"))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        
+        // Make multiple calls
+        client.send_message("C1", "t1", "First message").await.unwrap();
+        client.send_message("C1", "t1", "Second message").await.unwrap();
+        client.react_to_message("C1", "t1", "checkmark").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_empty_inputs() {
+        let mut mock = MockChat::new();
+        
+        // Test with empty strings
+        mock.expect_send_message()
+            .with(eq(""), eq(""), eq(""))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        mock.expect_get_thread_context()
+            .with(eq(""), eq(""))
+            .times(1)
+            .returning(|_, _| Ok("".to_string()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        
+        client.send_message("", "", "").await.unwrap();
+        let result = client.get_thread_context("", "").await.unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[tokio::test]
+    async fn test_chat_client_special_characters() {
+        let mut mock = MockChat::new();
+        
+        let special_message = "Hello @here! 🚀 This is a test with special chars: <@U123> #channel";
+        
+        mock.expect_send_message()
+            .with(eq("C1"), eq("t1"), eq(special_message))
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let client = ChatClient { inner: Arc::new(mock) };
+        client.send_message("C1", "t1", special_message).await.unwrap();
     }
 }
