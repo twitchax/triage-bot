@@ -511,6 +511,7 @@ mod tests {
         #[async_trait]
         impl GenericLlmClient for Llm {
             async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+            async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
             async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
         }
     }
@@ -528,6 +529,7 @@ mod tests {
                 channel_context: "ctx".to_string(),
                 thread_context: "ctx".to_string(),
                 web_search_context: "ctx".to_string(),
+                message_search_context: "ctx".to_string(),
             }))
             .times(1)
             .returning(|_| Ok(vec![]));
@@ -543,8 +545,38 @@ mod tests {
                 channel_context: "ctx".to_string(),
                 thread_context: "ctx".to_string(),
                 web_search_context: "ctx".to_string(),
+                message_search_context: "ctx".to_string(),
             })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn llm_client_delegates_get_message_search_agent_response() {
+        let mut mock = MockLlm::new();
+        mock.expect_get_message_search_agent_response()
+            .with(eq(MessageSearchContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "channel".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+            }))
+            .times(1)
+            .returning(|_| Ok("search, terms".to_string()));
+
+        let client = LlmClient { inner: Arc::new(mock) };
+        let result = client
+            .get_message_search_agent_response(&MessageSearchContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "channel".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+            })
+            .await
+            .unwrap();
+        
+        assert_eq!(result, "search, terms");
     }
 }
