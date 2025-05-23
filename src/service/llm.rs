@@ -8,7 +8,7 @@ use std::{
 use crate::base::types::{AssistantResponse, Res};
 use crate::base::{
     config::Config,
-    types::{AssistantContext, WebSearchContext},
+    types::{AssistantContext, MessageSearchContext, WebSearchContext},
 };
 use anyhow::Context;
 use async_openai::{
@@ -30,6 +30,8 @@ use tracing::{info, instrument, warn};
 pub trait GenericLlmClient: Send + Sync + 'static {
     /// Execute a web search using the search agent.
     async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+    /// Generate search terms for message search using the message search agent.
+    async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
     /// Generate a response from the primary assistant model.
     async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
 }
@@ -111,6 +113,37 @@ impl OpenAiLlmClient {
         ]))
     }
 
+    /// Build the message search input.
+    #[instrument(name = "OpenAiLlmClient::build_message_search_input", skip_all)]
+    fn build_message_search_input(&self, context: &MessageSearchContext) -> Res<ResponseInput> {
+        Ok(ResponseInput::Items(vec![
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::System)
+                    .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::User)
+                    .content(format!("# User Message\n\n{}\n\n", context.user_message))
+                    .build()?,
+            ),
+        ]))
+    }
+
     /// Build the response input including search results.
     #[instrument(name = "OpenAiLlmClient::build_response_input", skip_all)]
     fn build_assistant_agent_input(&self, context: &AssistantContext) -> Res<ResponseInput> {
@@ -149,6 +182,12 @@ impl OpenAiLlmClient {
                 InputMessageArgs::default()
                     .role(ResponsesRole::Developer)
                     .content(format!("## Web Search Results\n\n{}\n\n", context.web_search_context))
+                    .build()?,
+            ),
+            InputItem::Message(
+                InputMessageArgs::default()
+                    .role(ResponsesRole::Developer)
+                    .content(format!("## Message Search Results\n\n{}\n\n", context.message_search_context))
                     .build()?,
             ),
             InputItem::Message(
@@ -193,6 +232,34 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // Combine the search results into a single string
         Ok(search_results.join("\n\n"))
+    }
+
+    #[instrument(name = "OpenAiLlmClient::execute_message_search", skip_all)]
+    async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String> {
+        // Create a message search-specific prompt input
+        let input = self.build_message_search_input(context)?;
+
+        // Text config for the message search response
+        let text_config = TextConfig { format: TextResponseFormat::Text };
+
+        // Create the request
+        let request = CreateResponseRequestArgs::default()
+            .instructions(self.config.message_search_agent_system_directive.clone())
+            .max_output_tokens(self.config.openai_max_tokens)
+            .temperature(self.config.openai_search_agent_temperature) // Reuse the search agent temperature
+            .model(&self.config.openai_search_agent_model) // Reuse the search agent model
+            .text(text_config)
+            .input(input)
+            .build()?;
+
+        // Execute the message search request
+        let response = self.client.responses().create(request).await?;
+
+        // Parse the text response
+        let search_terms = parse_openai_text_response(&response)?;
+
+        // Combine the search terms into a single string
+        Ok(search_terms.join(", "))
     }
 
     /// Generate a response from a static system prompt and user message.
@@ -444,6 +511,7 @@ mod tests {
         #[async_trait]
         impl GenericLlmClient for Llm {
             async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+            async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
             async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>>;
         }
     }
@@ -461,6 +529,7 @@ mod tests {
                 channel_context: "ctx".to_string(),
                 thread_context: "ctx".to_string(),
                 web_search_context: "ctx".to_string(),
+                message_search_context: "ctx".to_string(),
             }))
             .times(1)
             .returning(|_| Ok(vec![]));
@@ -476,8 +545,38 @@ mod tests {
                 channel_context: "ctx".to_string(),
                 thread_context: "ctx".to_string(),
                 web_search_context: "ctx".to_string(),
+                message_search_context: "ctx".to_string(),
             })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn llm_client_delegates_get_message_search_agent_response() {
+        let mut mock = MockLlm::new();
+        mock.expect_get_message_search_agent_response()
+            .with(eq(MessageSearchContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "channel".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+            }))
+            .times(1)
+            .returning(|_| Ok("search, terms".to_string()));
+
+        let client = LlmClient { inner: Arc::new(mock) };
+        let result = client
+            .get_message_search_agent_response(&MessageSearchContext {
+                user_message: "msg".to_string(),
+                bot_user_id: "me".to_string(),
+                channel_id: "channel".to_string(),
+                channel_context: "ctx".to_string(),
+                thread_context: "ctx".to_string(),
+            })
+            .await
+            .unwrap();
+        
+        assert_eq!(result, "search, terms");
     }
 }

@@ -4,7 +4,7 @@ use serde::Serialize;
 use tracing::{Instrument, error, info, instrument, warn};
 
 use crate::{
-    base::types::{AssistantClassification, AssistantContext, AssistantResponse, Res, Void, WebSearchContext},
+    base::types::{AssistantClassification, AssistantContext, AssistantResponse, MessageSearchContext, Res, Void, WebSearchContext},
     service::{
         chat::ChatClient,
         db::{DbClient, LlmContext},
@@ -141,7 +141,7 @@ async fn compile_contexts(
     thread_context: String,
     db: &DbClient,
     llm: &LlmClient,
-    chat: &ChatClient,
+    _chat: &ChatClient,
 ) -> Res<AssistantContext> {
     let mut tasks = vec![];
 
@@ -159,6 +159,34 @@ async fn compile_contexts(
     let search_agent_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(&web_search_context).await });
     tasks.push(search_agent_task);
 
+    // Execute the message search agent to identify relevant messages from the channel history.
+
+    let llm_clone = llm.clone();
+    let db_clone = db.clone();
+    let channel_id_clone = channel_id.clone();
+    let message_search_context = MessageSearchContext {
+        user_message: user_message.clone(),
+        bot_user_id: bot_user_id.clone(),
+        channel_id: channel_id.clone(),
+        channel_context: channel_context.clone(),
+        thread_context: thread_context.clone(),
+    };
+
+    let message_search_task = tokio::spawn(async move {
+        // Get search terms from the message search agent
+        let search_terms = llm_clone.get_message_search_agent_response(&message_search_context).await?;
+        
+        // Search for relevant messages using the search terms
+        let messages = if !search_terms.is_empty() {
+            db_clone.search_messages(&channel_id_clone, &search_terms).await?
+        } else {
+            "No relevant messages found.".to_string()
+        };
+        
+        Ok(messages)
+    });
+    tasks.push(message_search_task);
+
     // Wait for all tasks to complete.
 
     let results = futures::future::join_all(tasks)
@@ -174,6 +202,7 @@ async fn compile_contexts(
         user_message,
         bot_user_id,
         web_search_context: results[0].clone(),
+        message_search_context: results[1].clone(),
         channel_id,
         thread_ts,
         channel_directive,

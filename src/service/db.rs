@@ -32,6 +32,8 @@ pub trait GenericDbClient: Send + Sync + 'static {
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
     /// Gets additional context for the channel.
     async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
+    /// Searches for messages in the channel that match the search string.
+    async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String>;
 }
 
 /// Database client for triage-bot.
@@ -92,6 +94,8 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
     pub message: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
 }
 
 // SurrealDB client implementation.
@@ -227,6 +231,48 @@ impl GenericDbClient for SurrealDbClient {
 
         Ok(result)
     }
+
+    #[instrument(skip(self))]
+    async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String> {
+        let terms: Vec<String> = search_terms
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+            
+        if terms.is_empty() {
+            return Ok("[]".to_string()); // Return empty array if no terms
+        }
+        
+        // Format the search terms for SurrealDB full-text search
+        // Convert each term to a quoted string and join with OR
+        let query_str = terms
+            .iter()
+            .map(|term| format!("\"{}\"", term))
+            .collect::<Vec<String>>()
+            .join(" OR ");
+            
+        // Get messages from the channel that match the search terms
+        // Use the full-text search capabilities
+        let messages: Vec<Message> = self
+            .db
+            .query(
+                "SELECT * 
+                FROM type::thing('channel', $channel_id)->has_message->message 
+                WHERE message.text @1@ $query_str;"
+            )
+            .bind(("channel_id", channel_id.to_string()))
+            .bind(("query_str", query_str))
+            .await?
+            .take(0)?;
+        
+        let result = serde_json::to_string(&messages)?;
+        
+        info!("Retrieved {} ranked messages for channel `{}` matching search terms: {}", 
+            messages.len(), channel_id, search_terms);
+        
+        Ok(result)
+    }
 }
 
 // Helpers.
@@ -244,6 +290,13 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
     // Schema for messages.
     db.query("DEFINE TABLE message SCHEMAFULL").await?;
     db.query("DEFINE FIELD message ON message FLEXIBLE TYPE object;").await?;
+    db.query("DEFINE FIELD message.message.text ON message TYPE string;").await?;
+
+    // Define analyzer for full-text search
+    db.query("DEFINE ANALYZER en TOKENIZERS class FILTERS lowercase, snowball(english);").await?;
+    
+    // Define full-text search index for message text
+    db.query("DEFINE INDEX msgTextFTS ON TABLE message COLUMNS message.text SEARCH ANALYZER en BM25;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;
@@ -291,5 +344,37 @@ mod tests {
                 your_notes: "No notes.".into()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn test_search_messages() {
+        let client = DbClient::surreal_memory().await.unwrap();
+        
+        // Add a channel
+        client.get_or_create_channel("C1").await.unwrap();
+        
+        // Add messages to the channel with clear text fields
+        client.add_channel_message("C1", &json!({"text": "Hello world"})).await.unwrap();
+        client.add_channel_message("C1", &json!({"text": "Test message with important keyword"})).await.unwrap();
+        client.add_channel_message("C1", &json!({"text": "Another test without the keyword"})).await.unwrap();
+        client.add_channel_message("C1", &json!({"text": "important important important"})).await.unwrap();
+        
+        // Test searching with a single term
+        let result = client.search_messages("C1", "important").await;
+        if let Err(e) = &result {
+            println!("Search error: {}", e);
+        } else {
+            println!("Search succeeded");
+        }
+        assert!(result.is_ok(), "Search messages should not error");
+        
+        // Test searching with multiple terms
+        let result = client.search_messages("C1", "Hello, test").await;
+        if let Err(e) = &result {
+            println!("Search error: {}", e);
+        } else {
+            println!("Search succeeded");
+        }
+        assert!(result.is_ok(), "Search messages should not error with multiple terms");
     }
 }

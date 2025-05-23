@@ -46,6 +46,16 @@ pub struct WebSearchContext {
     pub thread_context: String,
 }
 
+/// Helper struct to handle the context for the message search LLM.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct MessageSearchContext {
+    pub user_message: String,
+    pub bot_user_id: String,
+    pub channel_id: String,
+    pub channel_context: String,
+    pub thread_context: String,
+}
+
 /// Helper struct to handle the context for the assistant LLM.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct AssistantContext {
@@ -57,4 +67,5 @@ pub struct AssistantContext {
     pub channel_context: String,
     pub thread_context: String,
     pub web_search_context: String,
+    pub message_search_context: String,
 }

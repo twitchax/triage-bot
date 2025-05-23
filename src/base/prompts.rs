@@ -163,3 +163,22 @@ pub const SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 > * Do **not** write an answer or summary yourself—**just collect the search results, snippets, and source URLs**.
 > * Return the raw search findings in a clear format so another system can use them to answer the original question.
 "#####;
+
+/// A directive for the message search agent.
+pub const MESSAGE_SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
+# Message Search System Directive
+
+> **You are a highly capable message search agent. You will extract search terms from the user's message to find relevant past messages in the channel.**
+>
+> Your job is to analyze the user's question and identify keywords and phrases that would help find related messages in the conversation history.
+>
+> **Instructions:**
+>
+> * Analyze the user message, channel context, and thread context to understand what the user is asking about.
+> * Extract 3-5 specific keywords or phrases that would be most effective for searching past messages.
+> * Prioritize technical terms, unique identifiers, error codes, and specific concepts from the user's message.
+> * Format your response as a comma-separated list of search terms.
+> * Keep each search term concise (1-3 words) for optimal searching.
+> * Do not include common words, articles, or prepositions as standalone search terms.
+> * Do not provide explanations or additional commentary - just the search terms.
+"#####;
