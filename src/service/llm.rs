@@ -527,7 +527,7 @@ mod tests {
         }
     }
 
-    fn skip_if_no_api_key() {
+    fn fail_if_no_api_key() {
         if std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()) == "test_key" {
             panic!("OPENAI_API_KEY not set! Tests require a valid API key to run.");
         }
@@ -569,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_get_web_search_agent_response() {
-        skip_if_no_api_key();
+        fail_if_no_api_key();
         
         let config = create_test_config();
         let client = LlmClient::openai(&config);
@@ -584,7 +584,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_get_message_search_agent_response() {
-        skip_if_no_api_key();
+        fail_if_no_api_key();
         
         let config = create_test_config();
         let client = LlmClient::openai(&config);
@@ -601,7 +601,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_get_assistant_agent_response() {
-        skip_if_no_api_key();
+        fail_if_no_api_key();
         
         let config = create_test_config();
         let client = LlmClient::openai(&config);
@@ -630,7 +630,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_handles_empty_context() {
-        skip_if_no_api_key();
+        fail_if_no_api_key();
         
         let config = create_test_config();
         let client = LlmClient::openai(&config);
@@ -645,7 +645,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_llm_client_large_context_handling() {
-        skip_if_no_api_key();
+        fail_if_no_api_key();
         
         let config = create_test_config();
         let client = LlmClient::openai(&config);

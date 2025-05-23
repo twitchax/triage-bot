@@ -46,15 +46,20 @@ fn get_mock_chat() -> MockChat {
     mock
 }
 
-use futures::StreamExt;
-
 /// Helper function to setup the test environment.
 async fn setup_test_environment() -> Runtime {
     // Create a test configuration
     // Note: The actual OpenAI API key should be set via environment variable
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string());
+    
+    // Fail if no API key is set
+    if api_key == "test_key" {
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
+    }
+    
     let config = Config {
         inner: Arc::new(ConfigInner {
-            openai_api_key: std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()),
+            openai_api_key: api_key,
             openai_search_agent_model: "gpt-4.1-nano".to_string(),
             openai_assistant_agent_model: "gpt-4.1-nano".to_string(),
             openai_search_agent_temperature: 0.0,
@@ -82,10 +87,29 @@ async fn setup_test_environment() -> Runtime {
     Runtime { config, db, llm, chat }
 }
 
-/// Wait for a channel to be processed by polling for changes
+/// Wait for a channel to be processed using live queries
 async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempts: u32, delay_ms: u64) -> Result<(), anyhow::Error> {
-    // Poll the channel status until it is processed or timeout
+    use std::time::Duration;
+    
+    // First check if the channel already has directive notes
+    let channel = db.get_or_create_channel(channel_id).await?;
+    if !channel.channel_directive.your_notes.is_empty() {
+        return Ok(());
+    }
+    
+    // Poll for changes with decreasing delay
     for attempt in 1..=max_attempts {
+        // Wait before checking again - use an exponential backoff strategy
+        let wait_time = if attempt < 5 {
+            delay_ms / 2
+        } else if attempt < 10 {
+            delay_ms
+        } else {
+            delay_ms * 2
+        };
+        
+        tokio::time::sleep(Duration::from_millis(wait_time)).await;
+        
         // Check if the channel exists and has directive
         let channel = db.get_or_create_channel(channel_id).await?;
         
@@ -93,9 +117,6 @@ async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempt
         if !channel.channel_directive.your_notes.is_empty() {
             return Ok(());
         }
-        
-        // Wait before trying again
-        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
     }
     
     Err(anyhow::anyhow!("Timeout waiting for channel to be processed"))
@@ -105,11 +126,6 @@ async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempt
 async fn test_app_mention_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
-
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
 
     // Create a test channel
     let channel_id = "C01TEST";
@@ -158,11 +174,6 @@ async fn test_context_update_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
-
     let channel_id = "C02CONTEXTTEST";
     let thread_ts = "1234567890.456789";
 
@@ -204,11 +215,6 @@ async fn test_context_update_integration() {
 async fn test_add_context_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
-
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
 
     let channel_id = "C03ADDCONTEXT";
     let thread_ts = "1234567890.789012";
@@ -261,11 +267,6 @@ async fn test_add_context_integration() {
 async fn test_message_search_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
-
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
 
     let channel_id = "C04SEARCHTEST";
     let thread_ts = "1234567890.111111";
@@ -323,11 +324,6 @@ async fn test_message_search_integration() {
 async fn test_multiple_channel_isolation_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
-
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
 
     let channel1 = "C05ISOLATION1";
     let channel2 = "C05ISOLATION2";
@@ -393,11 +389,6 @@ async fn test_multiple_channel_isolation_integration() {
 async fn test_error_handling_integration() {
     // Set up the test environment  
     let runtime = setup_test_environment().await;
-
-    // Fail if no API key
-    if runtime.config.inner.openai_api_key == "test_key" {
-        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
-    }
 
     let channel_id = "C06ERRORTEST";
     let thread_ts = "1234567890.333333";
