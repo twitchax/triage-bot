@@ -187,7 +187,7 @@ impl OpenAiLlmClient {
             InputItem::Message(
                 InputMessageArgs::default()
                     .role(ResponsesRole::Developer)
-                    .content(format!("## Channel Message History\n\n{}\n\n", context.message_search_context))
+                    .content(format!("## Message Search Results\n\n{}\n\n", context.message_search_context))
                     .build()?,
             ),
             InputItem::Message(

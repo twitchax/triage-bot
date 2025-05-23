@@ -232,8 +232,6 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self))]
     async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String> {
-        // For simplicity in tests, just return all messages for the channel
-        // In a real implementation, this would filter based on search terms
         let messages: Vec<Message> = self
             .db
             .query("SELECT message FROM type::thing('channel', $channel_id)->has_message->message;")

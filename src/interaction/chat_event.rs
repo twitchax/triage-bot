@@ -183,7 +183,7 @@ async fn compile_contexts(
             "No relevant messages found.".to_string()
         };
         
-        Ok::<String, anyhow::Error>(messages)
+        Ok(messages)
     });
     tasks.push(message_search_task);
 
