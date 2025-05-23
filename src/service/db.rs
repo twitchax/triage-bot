@@ -250,6 +250,18 @@ impl GenericDbClient for SurrealDbClient {
             return Ok("[]".to_string()); // Return empty array if no terms
         }
 
+        // Generate the query parts.
+
+        let mut score_list = vec![];
+        let mut filter_list = vec![];
+        for (k, term) in terms.iter().enumerate() {
+            score_list.push(format!("search::score({k})"));
+            filter_list.push(format!("raw.text @{k}@ '{term}'"));
+        }
+
+        let score = score_list.join(" + ");
+        let filter = filter_list.join(" OR ");
+
         // Format the search terms for SurrealDB full-text search
         // Convert each term to a quoted string and join with OR
         let query_str = terms.iter().map(|term| format!("\"{term}\"")).collect::<Vec<String>>().join(" OR ");
@@ -258,15 +270,22 @@ impl GenericDbClient for SurrealDbClient {
         // Use the full-text search capabilities
         let messages: Vec<Message> = self
             .db
-            .query(
-                "SELECT * 
-                FROM type::thing('channel', $channel_id)->has_message->message 
-                WHERE message.text @1@ $query_str;",
-            )
+            .query(format!(
+                r####"
+                    let $messages = SELECT id FROM type::thing('channel', $channel_id)->has_message.out.id;
+                    let $messages = array::flatten($messages[*].id);
+
+                    SELECT *, {score} AS score
+                    FROM message
+                    WHERE id in $messages AND ({filter})
+                    ORDER BY score DESC
+                    LIMIT 50;
+                "####,
+            ))
             .bind(("channel_id", channel_id.to_string()))
             .bind(("query_str", query_str))
             .await?
-            .take(0)?;
+            .take(2)?;
 
         let result = serde_json::to_string(&messages)?;
 
