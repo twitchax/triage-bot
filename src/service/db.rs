@@ -297,7 +297,7 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
     db.query("DEFINE ANALYZER en TOKENIZERS class FILTERS lowercase, snowball(english);").await?;
 
     // Define full-text search index for message text
-    db.query("DEFINE INDEX msgTextFts ON TABLE message COLUMNS raw.text SEARCH ANALYZER en BM25;").await?;
+    db.query("DEFINE INDEX rawTextFts ON TABLE message FIELDS raw.text SEARCH ANALYZER en BM25;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;

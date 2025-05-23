@@ -47,7 +47,6 @@ fn get_mock_chat() -> MockChat {
 }
 
 /// Helper function to setup the test environment.
-#[cfg(test)]
 async fn setup_test_environment() -> Runtime {
     // Create a test configuration
     // Note: The actual OpenAI API key should be set via environment variable

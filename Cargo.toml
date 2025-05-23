@@ -28,13 +28,13 @@ hyper = { version = "1", features = ["client"] }
 hyper-util = { version = "0.1" }
 hyper-rustls = { version = "0.27" }
 rustls = { version = "0.23" }
-async-openai = { git = "https://github.com/64bit/async-openai", rev = "f4286c0b670ff9a17d2ec59c890df38c1a5451bf" }
+async-openai = { git = "https://github.com/64bit/async-openai", rev = "6014fd99c55198a95072b4204b0d3005e99d8ea1" }
 config = { version = "0.15", features = ["toml"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = "3"
 anyhow = "1"
-surrealdb = { version = "2", features = ["kv-mem"] }
+surrealdb = { version = "2", features = ["allocator", "kv-mem"] }
 futures = "0.3"
 chrono = { version = "0.4" }
 async-trait = "0.1"

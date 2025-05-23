@@ -1,10 +1,10 @@
 ## TODO
 
-- Consider adding an "agent per task".  One agent searches web.  One agent returns a message search query.  One agent goes to glean, etc.?  Maybe a good argument for making an "agent abstraction" that wraps the llm client.  That way tools, setup, etc., are all abstracted away.
-- Add context to search agent.
+- Fix the search agent to properly handle the database lookup.
 - Replace unit tests by factoring out non-client code, and unit testing that; then, tear out `mockall`.
 - Add more integration tests.
 - Improve documentation.
+- The surreal `Any` type + `Mem` bloats the binary by 30 MB-ish.  Consider splitting it into `cfg(test)` only. 
 
 ## Cool Ideas
 
