@@ -5,12 +5,13 @@ allowed_domains:
   - index.crates.io
   - static.rust-lang.org
   - docs.rs
+  - surrealdb.com
 
 # Build instructions
 build:
   command: cargo build
 
-# Test instructions  
+# Test instructions
 test:
   command: cargo nextest run
 
