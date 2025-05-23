@@ -94,6 +94,8 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
     pub message: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
 }
 
 // SurrealDB client implementation.
@@ -232,6 +234,7 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self))]
     async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String> {
+        // Get all messages first
         let messages: Vec<Message> = self
             .db
             .query("SELECT message FROM type::thing('channel', $channel_id)->has_message->message;")
@@ -239,27 +242,53 @@ impl GenericDbClient for SurrealDbClient {
             .await?
             .take(0)?;
         
-        // Filter messages containing the search terms manually
-        let terms: Vec<&str> = search_terms.split(',').map(|s| s.trim()).collect();
+        // Filter and rank messages manually
+        let terms: Vec<String> = search_terms.split(',')
+            .map(|s| s.trim().to_lowercase())
+            .collect();
         
-        let filtered_messages: Vec<&Message> = messages.iter()
-            .filter(|msg| {
-                if let Some(text) = msg.message.get("text") {
-                    if let Some(text_str) = text.as_str() {
-                        for term in &terms {
-                            if text_str.to_lowercase().contains(&term.to_lowercase()) {
-                                return true;
-                            }
+        // Score each message based on term frequency
+        let mut scored_messages: Vec<(Message, usize)> = Vec::new();
+        
+        for msg in messages {
+            let mut score = 0;
+            
+            if let Some(text) = msg.message.get("text") {
+                if let Some(text_str) = text.as_str() {
+                    let text_lower = text_str.to_lowercase();
+                    
+                    for term in &terms {
+                        // Count occurrences of the term in the message text
+                        if text_lower.contains(term) {
+                            // Count the number of occurrences of the term
+                            let count = text_lower.matches(term).count();
+                            score += count;
                         }
                     }
+                    
+                    if score > 0 {
+                        scored_messages.push((msg, score));
+                    }
                 }
-                false
+            }
+        }
+        
+        // Sort by score in descending order
+        scored_messages.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        // Extract just the messages, but add score to each one
+        let ranked_messages: Vec<Message> = scored_messages
+            .into_iter()
+            .map(|(mut msg, score)| {
+                msg.score = Some(score as f64);
+                msg
             })
             .collect();
         
-        let result = serde_json::to_string(&filtered_messages)?;
+        let result = serde_json::to_string(&ranked_messages)?;
         
-        info!("Retrieved {} messages for channel `{}` matching search terms: {}", filtered_messages.len(), channel_id, search_terms);
+        info!("Retrieved {} ranked messages for channel `{}` matching search terms: {}", 
+            ranked_messages.len(), channel_id, search_terms);
         
         Ok(result)
     }
@@ -280,6 +309,7 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
     // Schema for messages.
     db.query("DEFINE TABLE message SCHEMAFULL").await?;
     db.query("DEFINE FIELD message ON message FLEXIBLE TYPE object;").await?;
+    db.query("DEFINE FIELD message.message.text ON message TYPE string;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;
@@ -336,15 +366,17 @@ mod tests {
         // Add a channel
         client.get_or_create_channel("C1").await.unwrap();
         
-        // Add messages to the channel
+        // Add messages to the channel with clear text fields
         client.add_channel_message("C1", &json!({"text": "Hello world"})).await.unwrap();
         client.add_channel_message("C1", &json!({"text": "Test message with important keyword"})).await.unwrap();
         client.add_channel_message("C1", &json!({"text": "Another test without the keyword"})).await.unwrap();
+        client.add_channel_message("C1", &json!({"text": "important important important"})).await.unwrap();
         
-        // Simplified test approach - just verify we can call the function without errors
+        // Test searching with a single term
         let result = client.search_messages("C1", "important").await;
         assert!(result.is_ok(), "Search messages should not error");
         
+        // Test searching with multiple terms
         let result = client.search_messages("C1", "Hello, test").await;
         assert!(result.is_ok(), "Search messages should not error with multiple terms");
     }
