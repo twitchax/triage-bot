@@ -234,61 +234,42 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self))]
     async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String> {
-        // Get all messages first
+        let terms: Vec<String> = search_terms
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+            
+        if terms.is_empty() {
+            return Ok("[]".to_string()); // Return empty array if no terms
+        }
+        
+        // Format the search terms for SurrealDB full-text search
+        // Convert each term to a quoted string and join with OR
+        let query_str = terms
+            .iter()
+            .map(|term| format!("\"{}\"", term))
+            .collect::<Vec<String>>()
+            .join(" OR ");
+            
+        // Get messages from the channel that match the search terms
+        // Use the full-text search capabilities
         let messages: Vec<Message> = self
             .db
-            .query("SELECT message FROM type::thing('channel', $channel_id)->has_message->message;")
+            .query(
+                "SELECT * 
+                FROM type::thing('channel', $channel_id)->has_message->message 
+                WHERE message.text @1@ $query_str;"
+            )
             .bind(("channel_id", channel_id.to_string()))
+            .bind(("query_str", query_str))
             .await?
             .take(0)?;
         
-        // Filter and rank messages manually
-        let terms: Vec<String> = search_terms.split(',')
-            .map(|s| s.trim().to_lowercase())
-            .collect();
-        
-        // Score each message based on term frequency
-        let mut scored_messages: Vec<(Message, usize)> = Vec::new();
-        
-        for msg in messages {
-            let mut score = 0;
-            
-            if let Some(text) = msg.message.get("text") {
-                if let Some(text_str) = text.as_str() {
-                    let text_lower = text_str.to_lowercase();
-                    
-                    for term in &terms {
-                        // Count occurrences of the term in the message text
-                        if text_lower.contains(term) {
-                            // Count the number of occurrences of the term
-                            let count = text_lower.matches(term).count();
-                            score += count;
-                        }
-                    }
-                    
-                    if score > 0 {
-                        scored_messages.push((msg, score));
-                    }
-                }
-            }
-        }
-        
-        // Sort by score in descending order
-        scored_messages.sort_by(|a, b| b.1.cmp(&a.1));
-        
-        // Extract just the messages, but add score to each one
-        let ranked_messages: Vec<Message> = scored_messages
-            .into_iter()
-            .map(|(mut msg, score)| {
-                msg.score = Some(score as f64);
-                msg
-            })
-            .collect();
-        
-        let result = serde_json::to_string(&ranked_messages)?;
+        let result = serde_json::to_string(&messages)?;
         
         info!("Retrieved {} ranked messages for channel `{}` matching search terms: {}", 
-            ranked_messages.len(), channel_id, search_terms);
+            messages.len(), channel_id, search_terms);
         
         Ok(result)
     }
@@ -310,6 +291,12 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
     db.query("DEFINE TABLE message SCHEMAFULL").await?;
     db.query("DEFINE FIELD message ON message FLEXIBLE TYPE object;").await?;
     db.query("DEFINE FIELD message.message.text ON message TYPE string;").await?;
+
+    // Define analyzer for full-text search
+    db.query("DEFINE ANALYZER en TOKENIZERS class FILTERS lowercase, snowball(english);").await?;
+    
+    // Define full-text search index for message text
+    db.query("DEFINE INDEX msgTextFTS ON TABLE message COLUMNS message.text SEARCH ANALYZER en BM25;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;
@@ -374,10 +361,20 @@ mod tests {
         
         // Test searching with a single term
         let result = client.search_messages("C1", "important").await;
+        if let Err(e) = &result {
+            println!("Search error: {}", e);
+        } else {
+            println!("Search succeeded");
+        }
         assert!(result.is_ok(), "Search messages should not error");
         
         // Test searching with multiple terms
         let result = client.search_messages("C1", "Hello, test").await;
+        if let Err(e) = &result {
+            println!("Search error: {}", e);
+        } else {
+            println!("Search succeeded");
+        }
         assert!(result.is_ok(), "Search messages should not error with multiple terms");
     }
 }
