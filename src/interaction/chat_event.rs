@@ -175,14 +175,14 @@ async fn compile_contexts(
     let message_search_task = tokio::spawn(async move {
         // Get search terms from the message search agent
         let search_terms = llm_clone.get_message_search_agent_response(&message_search_context).await?;
-        
+
         // Search for relevant messages using the search terms
         let messages = if !search_terms.is_empty() {
-            db_clone.search_messages(&channel_id_clone, &search_terms).await?
+            db_clone.search_channel_messages(&channel_id_clone, &search_terms).await?
         } else {
             "No relevant messages found.".to_string()
         };
-        
+
         Ok(messages)
     });
     tasks.push(message_search_task);

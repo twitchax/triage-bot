@@ -32,6 +32,8 @@ where
     E: Serialize,
 {
     let message = serde_json::to_value(&event).unwrap();
+    let _ = db.get_or_create_channel(&channel_id).await?;
+
     db.add_channel_message(&channel_id, &message).await?;
 
     Ok(())
