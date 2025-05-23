@@ -46,5 +46,7 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: cargo nextest run
         continue-on-error: true
