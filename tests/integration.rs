@@ -2,11 +2,49 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use mockall::mock;
 use triage_bot::{
-    base::config::{Config, ConfigInner},
+    base::{
+        config::{Config, ConfigInner},
+        types::{Res, Void},
+    },
     runtime::Runtime,
-    service::{chat::ChatClient, db::DbClient, llm::LlmClient},
+    service::{
+        chat::{ChatClient, GenericChatClient},
+        db::DbClient,
+        llm::LlmClient,
+    },
 };
+
+// Mocks.
+
+// Mock chat client for testing.
+
+mock! {
+    pub Chat {}
+
+    #[async_trait]
+    impl GenericChatClient for Chat {
+        fn bot_user_id(&self) -> &str;
+        async fn start(&self) -> triage_bot::base::types::Void;
+        async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+        async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
+        async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+    }
+}
+
+fn get_mock_chat() -> MockChat {
+    let mut mock = MockChat::new();
+
+    mock.expect_bot_user_id().return_const("U12345".to_string());
+    mock.expect_start().returning(|| Ok(()));
+    mock.expect_send_message().returning(|_, _, _| Ok(()));
+    mock.expect_react_to_message().returning(|_, _, _| Ok(()));
+    mock.expect_get_thread_context().returning(|_, _| Ok("Some context.".to_string()));
+
+    mock
+}
 
 /// Helper function to setup the test environment.
 #[cfg(test)]
@@ -38,7 +76,7 @@ async fn setup_test_environment() -> Runtime {
     let llm = LlmClient::openai(&config);
 
     // We create a mocked version of the chat client that just returns success on all calls.
-    let chat = ChatClient::mock();
+    let chat = ChatClient::new(Arc::new(get_mock_chat()));
 
     Runtime { config, db, llm, chat }
 }

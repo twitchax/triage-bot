@@ -10,7 +10,6 @@ use crate::{
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use mockall::mock;
 use slack_morphism::{errors::SlackClientError, prelude::*};
 use tracing::{info, instrument, warn};
 
@@ -74,10 +73,8 @@ impl ChatClient {
         Ok(Self { inner: Arc::new(client) })
     }
 
-    /// Creates a new mocked chat client for testing.
-    pub fn mock() -> Self {
-        let client = get_mock_chat();
-        Self { inner: Arc::new(client) }
+    pub fn new(inner: Arc<dyn GenericChatClient>) -> Self {
+        Self { inner }
     }
 }
 
@@ -319,40 +316,28 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
     Ok(())
 }
 
-// Mock chat client for testing.
-
-mock! {
-    pub Chat {}
-
-    #[async_trait]
-    impl GenericChatClient for Chat {
-        fn bot_user_id(&self) -> &str;
-        async fn start(&self) -> Void;
-        async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
-        async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
-        async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
-    }
-}
-
-fn get_mock_chat() -> MockChat {
-    let mut mock = MockChat::new();
-
-    mock.expect_bot_user_id().return_const("U12345".to_string());
-    mock.expect_start().returning(|| Ok(()));
-    mock.expect_send_message().returning(|_, _, _| Ok(()));
-    mock.expect_react_to_message().returning(|_, _, _| Ok(()));
-    mock.expect_get_thread_context().returning(|_, _| Ok("Some context.".to_string()));
-
-    mock
-}
-
 // Tests.
 
 #[cfg(test)]
 mod tests {
-    use mockall::predicate::eq;
+    use mockall::{mock, predicate::eq};
 
     use super::*;
+
+    // Mock chat client for testing.
+
+    mock! {
+        pub Chat {}
+
+        #[async_trait]
+        impl GenericChatClient for Chat {
+            fn bot_user_id(&self) -> &str;
+            async fn start(&self) -> Void;
+            async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+            async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
+            async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+        }
+    }
 
     #[tokio::test]
     async fn chat_client_delegates_send_message() {

@@ -93,9 +93,7 @@ pub struct Channel {
 pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
-    pub message: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub score: Option<f64>,
+    pub raw: Value,
 }
 
 // SurrealDB client implementation.
@@ -182,7 +180,7 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self, context))]
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()> {
-        let _ = self
+        let mut response = self
             .db
             .query("BEGIN TRANSACTION;")
             .query("LET $channel = type::thing('channel', $channel_id);")
@@ -193,6 +191,11 @@ impl GenericDbClient for SurrealDbClient {
             .bind(("channel_id", channel_id.to_string()))
             .await?;
 
+        let errors = response.take_errors();
+        if !errors.is_empty() {
+            return Err(anyhow!("Failed to add message to channel `{}`: {:#?}.", channel_id, errors));
+        }
+
         info!("Added context for channel `{}`.", channel_id);
 
         Ok(())
@@ -200,16 +203,23 @@ impl GenericDbClient for SurrealDbClient {
 
     #[instrument(skip(self, message))]
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()> {
-        let _ = self
+        let message = Message { id: None, raw: message.clone() };
+
+        let mut response = self
             .db
             .query("BEGIN TRANSACTION;")
             .query("LET $channel = type::thing('channel', $channel_id);")
             .query("LET $message = (CREATE message CONTENT $message_content).id;")
             .query("RELATE $channel->has_message->$message;")
             .query("COMMIT;")
-            .bind(("message_content", message.clone()))
+            .bind(("message_content", message))
             .bind(("channel_id", channel_id.to_string()))
             .await?;
+
+        let errors = response.take_errors();
+        if !errors.is_empty() {
+            return Err(anyhow!("Failed to add message to channel `{}`: {:#?}.", channel_id, errors));
+        }
 
         info!("Added message for channel `{}`.", channel_id);
 
@@ -280,14 +290,14 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
 
     // Schema for messages.
     db.query("DEFINE TABLE message SCHEMAFULL").await?;
-    db.query("DEFINE FIELD message ON message FLEXIBLE TYPE object;").await?;
-    db.query("DEFINE FIELD message.message.text ON message TYPE string;").await?;
+    db.query("DEFINE FIELD raw ON message FLEXIBLE TYPE object;").await?;
+    db.query("DEFINE FIELD raw.text ON message TYPE string;").await?;
 
     // Define analyzer for full-text search
     db.query("DEFINE ANALYZER en TOKENIZERS class FILTERS lowercase, snowball(english);").await?;
 
     // Define full-text search index for message text
-    db.query("DEFINE INDEX msgTextFts ON TABLE message COLUMNS message.text SEARCH ANALYZER en BM25;").await?;
+    db.query("DEFINE INDEX msgTextFts ON TABLE message COLUMNS raw.text SEARCH ANALYZER en BM25;").await?;
 
     // Schema for list of channels that the bot has been "added to" (@-mentioned).
     db.query("DEFINE TABLE channel SCHEMAFULL").await?;

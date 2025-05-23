@@ -286,15 +286,23 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let request = CreateResponseRequestArgs::default()
+            let mut request = CreateResponseRequestArgs::default();
+
+            request
                 .max_output_tokens(self.config.openai_max_tokens)
-                .temperature(self.config.openai_assistant_agent_temperature)
                 .model(&self.config.openai_assistant_agent_model)
                 .instructions(self.config.assistant_agent_system_directive.clone())
                 .tools(tools.clone())
                 .text(text_config.clone())
-                .input(input)
-                .build()?;
+                .input(input);
+
+            if self.config.openai_assistant_agent_model == "gpt-4.1" {
+                request.temperature(self.config.openai_assistant_agent_temperature);
+            }
+
+            // TODO: Add reasoning effort for `o` models.
+
+            let request = request.build()?;
 
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_structured_response(&response)?;
@@ -576,7 +584,7 @@ mod tests {
             })
             .await
             .unwrap();
-        
+
         assert_eq!(result, "search, terms");
     }
 }

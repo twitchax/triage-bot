@@ -35,11 +35,10 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
 
 ## Tool Guardrails
 
-*You have three tools:*
+*You may have some tools available to you:*
 
 | Tool                     | Call condition                                                                                                                                                                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internet_search`        | Use liberally to ground answers in fresh info.                                                                                                                                      |
 | `set_channel_directive`  | **Only** when you're **@-mentioned** with “please update the channel directive” or _very_ similar.                                                                                  |
 | `update_channel_context` | **Only** when you're **@-mentioned** with “please remember ...” or similar explicit request.  99% of the time, the user is asking you to reply, and this tool should not be called. |
 
