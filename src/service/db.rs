@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use surrealdb::{
     Connection, RecordId, Surreal,
-    engine::any::{self, Any},
+    engine::remote::ws::{Client, Ws},
     opt::auth::Root,
 };
 use tracing::{info, instrument};
@@ -57,14 +57,7 @@ impl DbClient {
     /// Create a new database client.
     #[instrument(skip_all)]
     pub async fn surreal(config: &Config) -> Res<Self> {
-        let db = SurrealDbClient::new(Some(config)).await?;
-        Ok(Self { inner: Arc::new(db) })
-    }
-
-    /// Create a new in-memory database client.
-    #[instrument(skip_all)]
-    pub async fn surreal_memory() -> Res<Self> {
-        let db = SurrealDbClient::new(None).await?;
+        let db = SurrealDbClient::new(config).await?;
         Ok(Self { inner: Arc::new(db) })
     }
 }
@@ -99,39 +92,39 @@ pub struct Message {
 // SurrealDB client implementation.
 
 /// Database client for SurrealDB.
-pub struct SurrealDbClient {
-    pub db: Surreal<Any>,
+pub struct SurrealDbClient<C>
+where
+    C: Connection,
+{
+    pub db: Surreal<C>,
 }
 
-impl Deref for SurrealDbClient {
-    type Target = Surreal<Any>;
+impl<C> Deref for SurrealDbClient<C>
+where
+    C: Connection,
+{
+    type Target = Surreal<C>;
 
     fn deref(&self) -> &Self::Target {
         &self.db
     }
 }
 
-impl SurrealDbClient {
+impl SurrealDbClient<Client> {
     /// Create a new database client.
     ///
     /// This creates an in-memory database instance. For production, you would
     /// want to connect to a persistent database.
     #[instrument(name = "SurrealDbClient::new", skip_all)]
     #[allow(unused_variables)]
-    pub async fn new(config: Option<&Config>) -> Res<Self> {
-        let db = if let Some(config) = config {
-            let db = any::connect(&config.db_endpoint).await?;
+    pub async fn new(config: &Config) -> Res<Self> {
+        let db = Surreal::new::<Ws>(&config.db_endpoint).await?;
 
-            db.signin(Root {
-                username: &config.db_username,
-                password: &config.db_password,
-            })
-            .await?;
-
-            db
-        } else {
-            any::connect("memory").await?
-        };
+        db.signin(Root {
+            username: &config.db_username,
+            password: &config.db_password,
+        })
+        .await?;
 
         setup_surreal_db(&db).await?;
 
@@ -141,8 +134,24 @@ impl SurrealDbClient {
     }
 }
 
+impl<C> SurrealDbClient<C>
+where
+    C: Connection,
+{
+    pub async fn from(db: Surreal<C>) -> Res<Self> {
+        setup_surreal_db(&db).await?;
+
+        info!("Database initialized successfully.");
+
+        Ok(Self { db })
+    }
+}
+
 #[async_trait]
-impl GenericDbClient for SurrealDbClient {
+impl<C> GenericDbClient for SurrealDbClient<C>
+where
+    C: Connection,
+{
     #[instrument(skip(self))]
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
         let channel: Option<Channel> = self.select(("channel", channel_id)).await?;
@@ -335,12 +344,22 @@ async fn setup_surreal_db<C: Connection>(db: &Surreal<C>) -> Void {
 
 #[cfg(test)]
 mod tests {
+    use surrealdb::engine::local::Mem;
+
     use super::*;
+
+    async fn setup_test_db() -> Res<DbClient> {
+        let surreal = Surreal::new::<Mem>(()).await?;
+        let db = SurrealDbClient::from(surreal).await?;
+        let client = DbClient { inner: Arc::new(db) };
+
+        Ok(client)
+    }
 
     #[tokio::test]
     async fn test_get_or_create_channel() {
-        let client = DbClient::surreal_memory().await.unwrap();
-        
+        let client = setup_test_db().await.unwrap();
+
         // Test channel creation
         let channel = client.get_or_create_channel("C1").await.unwrap();
         assert!(serde_json::to_string(&channel.channel_directive).unwrap().contains("Channel directive has not been set yet."));
@@ -352,8 +371,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_channel_directive() {
-        let client = DbClient::surreal_memory().await.unwrap();
-        
+        let client = setup_test_db().await.unwrap();
+
         // Create a channel first
         client.get_or_create_channel("C1").await.unwrap();
 
@@ -363,20 +382,20 @@ mod tests {
             user_message: json!({ "directive": "new channel directive" }),
             your_notes: "Updated notes.".into(),
         };
-        
+
         client.update_channel_directive("C1", &new_directive).await.unwrap();
 
         // Verify the update - the directive should be completely replaced
         let updated = client.get_or_create_channel("C1").await.unwrap();
-        // Note: SurrealDB merges the objects, so we verify the key fields are updated
+
         assert_eq!(updated.channel_directive.your_notes, "Updated notes.");
         assert!(updated.channel_directive.user_message.get("directive").is_some());
     }
 
     #[tokio::test]
     async fn test_add_channel_context() {
-        let client = DbClient::surreal_memory().await.unwrap();
-        
+        let client = setup_test_db().await.unwrap();
+
         // Create a channel first
         client.get_or_create_channel("C1").await.unwrap();
 
@@ -386,38 +405,40 @@ mod tests {
             user_message: json!({ "context": "some context data" }),
             your_notes: "Context notes.".into(),
         };
-        
+
         client.add_channel_context("C1", &context).await.unwrap();
 
         // Verify context was added by getting channel context
         let retrieved_context = client.get_channel_context("C1").await.unwrap();
+
         assert!(!retrieved_context.is_empty());
         assert!(retrieved_context.contains("some context data"));
     }
 
     #[tokio::test]
     async fn test_add_channel_message() {
-        let client = DbClient::surreal_memory().await.unwrap();
-        
+        let client = setup_test_db().await.unwrap();
+
         // Create a channel first
         client.get_or_create_channel("C1").await.unwrap();
 
         // Add messages
         let message1 = json!({"text": "Hello world", "user": "U123", "ts": "1234567890.123"});
         let message2 = json!({"text": "Another message", "user": "U456", "ts": "1234567890.456"});
-        
+
         client.add_channel_message("C1", &message1).await.unwrap();
         client.add_channel_message("C1", &message2).await.unwrap();
 
         // Messages should be stored and retrievable via search
         let search_result = client.search_channel_messages("C1", "Hello").await.unwrap();
+
         assert!(!search_result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_channel_context() {
-        let client = DbClient::surreal_memory().await.unwrap();
-        
+        let client = setup_test_db().await.unwrap();
+
         // Create a channel first
         client.get_or_create_channel("C1").await.unwrap();
 
@@ -436,12 +457,13 @@ mod tests {
             user_message: json!({ "context": "second context" }),
             your_notes: "Second notes.".into(),
         };
-        
+
         client.add_channel_context("C1", &context1).await.unwrap();
         client.add_channel_context("C1", &context2).await.unwrap();
 
         // Should now return the contexts
         let retrieved_context = client.get_channel_context("C1").await.unwrap();
+
         assert!(!retrieved_context.is_empty());
         assert_ne!(retrieved_context, "[]");
         assert!(retrieved_context.contains("first context"));
@@ -450,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_channel_messages() {
-        let client = DbClient::surreal_memory().await.unwrap();
+        let client = setup_test_db().await.unwrap();
 
         // Create a channel
         client.get_or_create_channel("C1").await.unwrap();
@@ -466,17 +488,15 @@ mod tests {
         assert!(result.is_ok(), "Search should not error");
 
         // Test searching with multiple terms
-        let result = client.search_channel_messages("C1", "Hello, test").await;
-        assert!(result.is_ok(), "Search should not error with multiple terms");
+        let _ = client.search_channel_messages("C1", "Hello, test").await.unwrap();
 
         // Test searching with no matches
-        let result = client.search_channel_messages("C1", "nonexistent").await;
-        assert!(result.is_ok(), "Search should not error with no matches");
+        let _ = client.search_channel_messages("C1", "nonexistent").await.unwrap();
     }
 
     #[tokio::test]
     async fn test_search_messages_empty_terms() {
-        let client = DbClient::surreal_memory().await.unwrap();
+        let client = setup_test_db().await.unwrap();
         client.get_or_create_channel("C1").await.unwrap();
 
         // Test searching with empty terms
@@ -490,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operations_on_nonexistent_channel() {
-        let client = DbClient::surreal_memory().await.unwrap();
+        let client = setup_test_db().await.unwrap();
 
         // These operations should not fail even on nonexistent channels
         let context = client.get_channel_context("NONEXISTENT").await.unwrap();
@@ -505,7 +525,7 @@ mod tests {
             user_message: json!({ "test": "value" }),
             your_notes: "Test notes.".into(),
         };
-        
+
         // This should succeed (channel gets created implicitly by the relation)
         client.add_channel_context("NONEXISTENT2", &context_obj).await.unwrap();
         let retrieved = client.get_channel_context("NONEXISTENT2").await.unwrap();
@@ -514,7 +534,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_channels_isolation() {
-        let client = DbClient::surreal_memory().await.unwrap();
+        let client = setup_test_db().await.unwrap();
 
         // Create two channels
         client.get_or_create_channel("C1").await.unwrap();

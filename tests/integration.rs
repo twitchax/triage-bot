@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mockall::mock;
+use surrealdb::{Surreal, engine::local::Mem};
 use triage_bot::{
     base::{
         config::{Config, ConfigInner},
@@ -12,7 +13,7 @@ use triage_bot::{
     runtime::Runtime,
     service::{
         chat::{ChatClient, GenericChatClient},
-        db::DbClient,
+        db::{DbClient, SurrealDbClient},
         llm::LlmClient,
     },
 };
@@ -46,17 +47,25 @@ fn get_mock_chat() -> MockChat {
     mock
 }
 
+async fn setup_test_db() -> Res<DbClient> {
+    let surreal = Surreal::new::<Mem>(()).await?;
+    let db = SurrealDbClient::from(surreal).await?;
+    let client = DbClient { inner: Arc::new(db) };
+
+    Ok(client)
+}
+
 /// Helper function to setup the test environment.
 async fn setup_test_environment() -> Runtime {
     // Create a test configuration
     // Note: The actual OpenAI API key should be set via environment variable
     let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string());
-    
+
     // Fail if no API key is set
     if api_key == "test_key" {
         panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
-    
+
     let config = Config {
         inner: Arc::new(ConfigInner {
             openai_api_key: api_key,
@@ -76,7 +85,7 @@ async fn setup_test_environment() -> Runtime {
     };
 
     // Initialize the database (using in-memory for tests).
-    let db = DbClient::surreal_memory().await.expect("Failed to create DB client");
+    let db = setup_test_db().await.unwrap();
 
     // Initialize the LLM client (using real OpenAI key for tests).
     let llm = LlmClient::openai(&config);
@@ -90,13 +99,15 @@ async fn setup_test_environment() -> Runtime {
 /// Wait for a channel to be processed using live queries
 async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempts: u32, delay_ms: u64) -> Result<(), anyhow::Error> {
     use std::time::Duration;
-    
+
+    //let mut stream = db.select("channel").live().await?;
+
     // First check if the channel already has directive notes
     let channel = db.get_or_create_channel(channel_id).await?;
     if !channel.channel_directive.your_notes.is_empty() {
         return Ok(());
     }
-    
+
     // Poll for changes with decreasing delay
     for attempt in 1..=max_attempts {
         // Wait before checking again - use an exponential backoff strategy
@@ -107,18 +118,18 @@ async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempt
         } else {
             delay_ms * 2
         };
-        
+
         tokio::time::sleep(Duration::from_millis(wait_time)).await;
-        
+
         // Check if the channel exists and has directive
         let channel = db.get_or_create_channel(channel_id).await?;
-        
+
         // Channel is processed if it has notes in the directive
         if !channel.channel_directive.your_notes.is_empty() {
             return Ok(());
         }
     }
-    
+
     Err(anyhow::anyhow!("Timeout waiting for channel to be processed"))
 }
 
@@ -154,8 +165,7 @@ async fn test_app_mention_integration() {
     );
 
     // Wait for processing using polling
-    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
-        .expect("Failed waiting for channel to be processed");
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await.expect("Failed waiting for channel to be processed");
 
     // Verify the channel was created in the database
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
@@ -198,12 +208,11 @@ async fn test_context_update_integration() {
     );
 
     // Wait for processing using polling
-    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
-        .expect("Failed waiting for channel to be processed");
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await.expect("Failed waiting for channel to be processed");
 
     // Verify the channel exists and has been processed
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
-    assert!(channel.channel_directive.your_notes.len() > 0);
+    assert!(!channel.channel_directive.your_notes.is_empty());
 
     // Verify context can be retrieved
     let context = runtime.db.get_channel_context(channel_id).await.expect("Failed to get context");
@@ -251,14 +260,13 @@ async fn test_add_context_integration() {
     );
 
     // Wait for processing using polling
-    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
-        .expect("Failed waiting for channel to be processed");
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await.expect("Failed waiting for channel to be processed");
 
     // Verify context has been added/updated
     let context = runtime.db.get_channel_context(channel_id).await.expect("Failed to get context");
     assert!(!context.is_empty());
     assert_ne!(context, "[]");
-    
+
     // Should contain the initial context we added
     assert!(context.contains("Initial context") || context.contains("Channel setup"));
 }
@@ -273,19 +281,33 @@ async fn test_message_search_integration() {
 
     // Create channel and add some messages
     runtime.db.get_or_create_channel(channel_id).await.expect("Failed to create channel");
-    
-    // Add some test messages to search through
-    runtime.db.add_channel_message(channel_id, &serde_json::json!({
-        "text": "We had a deployment issue yesterday with the frontend service",
-        "user": "U111", 
-        "ts": "1234567890.100001"
-    })).await.expect("Failed to add message");
 
-    runtime.db.add_channel_message(channel_id, &serde_json::json!({
-        "text": "The database migration failed during deployment",
-        "user": "U222",
-        "ts": "1234567890.100002"
-    })).await.expect("Failed to add message");
+    // Add some test messages to search through
+    runtime
+        .db
+        .add_channel_message(
+            channel_id,
+            &serde_json::json!({
+                "text": "We had a deployment issue yesterday with the frontend service",
+                "user": "U111",
+                "ts": "1234567890.100001"
+            }),
+        )
+        .await
+        .expect("Failed to add message");
+
+    runtime
+        .db
+        .add_channel_message(
+            channel_id,
+            &serde_json::json!({
+                "text": "The database migration failed during deployment",
+                "user": "U222",
+                "ts": "1234567890.100002"
+            }),
+        )
+        .await
+        .expect("Failed to add message");
 
     // Create a message that would trigger message search
     let search_message = serde_json::json!({
@@ -308,19 +330,18 @@ async fn test_message_search_integration() {
     );
 
     // Wait for processing using polling
-    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
-        .expect("Failed waiting for channel to be processed");
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await.expect("Failed waiting for channel to be processed");
 
     // Verify the channel processing completed
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
-    assert!(channel.channel_directive.your_notes.len() > 0);
+    assert!(!channel.channel_directive.your_notes.is_empty());
 
     // Test message search functionality directly
     let search_result = runtime.db.search_channel_messages(channel_id, "deployment").await;
     assert!(search_result.is_ok(), "Message search should not error");
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_multiple_channel_isolation_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
@@ -340,7 +361,7 @@ async fn test_multiple_channel_isolation_integration() {
     });
 
     let message2 = serde_json::json!({
-        "type": "app_mention", 
+        "type": "app_mention",
         "user": "U54321",
         "text": "<@U12345> This is channel 2 with frontend design topics",
         "ts": "1234567890.222223",
@@ -349,29 +370,13 @@ async fn test_multiple_channel_isolation_integration() {
     });
 
     // Process both messages
-    triage_bot::interaction::chat_event::handle_chat_event(
-        message1,
-        channel1.to_string(),
-        thread_ts.to_string(),
-        runtime.db.clone(),
-        runtime.llm.clone(),
-        runtime.chat.clone(),
-    );
+    triage_bot::interaction::chat_event::handle_chat_event(message1, channel1.to_string(), thread_ts.to_string(), runtime.db.clone(), runtime.llm.clone(), runtime.chat.clone());
 
-    triage_bot::interaction::chat_event::handle_chat_event(
-        message2,
-        channel2.to_string(),
-        thread_ts.to_string(),
-        runtime.db.clone(),
-        runtime.llm.clone(),
-        runtime.chat.clone(),
-    );
+    triage_bot::interaction::chat_event::handle_chat_event(message2, channel2.to_string(), thread_ts.to_string(), runtime.db.clone(), runtime.llm.clone(), runtime.chat.clone());
 
     // Wait for both channels to be processed
-    wait_for_channel_processed(&runtime.db, channel1, 50, 200).await
-        .expect("Failed waiting for channel1 to be processed");
-    wait_for_channel_processed(&runtime.db, channel2, 50, 200).await
-        .expect("Failed waiting for channel2 to be processed");
+    wait_for_channel_processed(&runtime.db, channel1, 50, 200).await.expect("Failed waiting for channel1 to be processed");
+    wait_for_channel_processed(&runtime.db, channel2, 50, 200).await.expect("Failed waiting for channel2 to be processed");
 
     // Verify channels exist and are different
     let chan1 = runtime.db.get_or_create_channel(channel1).await.expect("Failed to get channel 1");
@@ -380,14 +385,14 @@ async fn test_multiple_channel_isolation_integration() {
     // Channels should have different directives
     let dir1 = serde_json::to_string(&chan1.channel_directive).unwrap();
     let dir2 = serde_json::to_string(&chan2.channel_directive).unwrap();
-    
+
     // The directives should be different (not the same default)
     assert_ne!(dir1, dir2);
 }
 
 #[tokio::test]
 async fn test_error_handling_integration() {
-    // Set up the test environment  
+    // Set up the test environment
     let runtime = setup_test_environment().await;
 
     let channel_id = "C06ERRORTEST";
@@ -398,7 +403,7 @@ async fn test_error_handling_integration() {
         "type": "app_mention",
         "user": "U54321",
         "text": "", // Empty text might cause issues
-        "ts": "1234567890.333333", 
+        "ts": "1234567890.333333",
         "channel": channel_id,
         "event_ts": "1234567890.333333",
     });

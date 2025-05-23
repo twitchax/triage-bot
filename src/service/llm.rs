@@ -570,30 +570,26 @@ mod tests {
     #[tokio::test]
     async fn test_llm_client_get_web_search_agent_response() {
         fail_if_no_api_key();
-        
+
         let config = create_test_config();
         let client = LlmClient::openai(&config);
         let context = create_test_web_search_context("What is Rust programming language?");
 
-        let result = client.get_web_search_agent_response(&context).await;
-        assert!(result.is_ok(), "Web search agent should respond successfully");
-        
-        let response = result.unwrap();
+        let response = client.get_web_search_agent_response(&context).await.unwrap();
+
         assert!(!response.is_empty(), "Response should not be empty");
     }
 
     #[tokio::test]
     async fn test_llm_client_get_message_search_agent_response() {
         fail_if_no_api_key();
-        
+
         let config = create_test_config();
         let client = LlmClient::openai(&config);
         let context = create_test_message_search_context("Find messages about deployment issues");
 
-        let result = client.get_message_search_agent_response(&context).await;
-        assert!(result.is_ok(), "Message search agent should respond successfully");
-        
-        let response = result.unwrap();
+        let response = client.get_message_search_agent_response(&context).await.unwrap();
+
         assert!(!response.is_empty(), "Response should not be empty");
         // The response should contain search terms
         assert!(response.len() > 2, "Search terms should be meaningful");
@@ -602,19 +598,17 @@ mod tests {
     #[tokio::test]
     async fn test_llm_client_get_assistant_agent_response() {
         fail_if_no_api_key();
-        
+
         let config = create_test_config();
         let client = LlmClient::openai(&config);
         let context = create_test_assistant_context("Hello, can you help me with a simple question?");
 
-        let result = client.get_assistant_agent_response(&context).await;
-        assert!(result.is_ok(), "Assistant agent should respond successfully");
-        
-        let responses = result.unwrap();
+        let responses = client.get_assistant_agent_response(&context).await.unwrap();
+
         assert!(!responses.is_empty(), "Should return at least one response");
     }
 
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_llm_client_error_handling_invalid_api_key() {
         let mut config = create_test_config();
         // Use an invalid API key to test error handling
@@ -631,32 +625,28 @@ mod tests {
     #[tokio::test]
     async fn test_llm_client_handles_empty_context() {
         fail_if_no_api_key();
-        
+
         let config = create_test_config();
         let client = LlmClient::openai(&config);
         let mut context = create_test_message_search_context("");
         context.channel_context = "".to_string();
         context.thread_context = "".to_string();
 
-        let result = client.get_message_search_agent_response(&context).await;
-        // Should handle empty context gracefully - either succeed with empty response or return meaningful error
-        assert!(result.is_ok() || result.is_err(), "Should handle empty context without panicking");
+        let _ = client.get_message_search_agent_response(&context).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_llm_client_large_context_handling() {
         fail_if_no_api_key();
-        
+
         let config = create_test_config();
         let client = LlmClient::openai(&config);
-        
+
         // Create a very large context to test token limits
         let large_context = "context ".repeat(1000);
         let mut context = create_test_web_search_context("Simple question");
         context.channel_context = large_context;
 
-        let result = client.get_web_search_agent_response(&context).await;
-        // Should either succeed or fail gracefully with context too large
-        assert!(result.is_ok() || result.is_err(), "Should handle large context without panicking");
+        let _ = client.get_web_search_agent_response(&context).await.unwrap();
     }
 }
