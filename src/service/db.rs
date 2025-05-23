@@ -100,7 +100,7 @@ pub struct Message {
 
 /// Database client for SurrealDB.
 pub struct SurrealDbClient {
-    db: Surreal<Any>,
+    pub db: Surreal<Any>,
 }
 
 impl Deref for SurrealDbClient {

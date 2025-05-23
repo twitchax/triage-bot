@@ -517,11 +517,11 @@ mod tests {
         Config {
             inner: Arc::new(ConfigInner {
                 openai_api_key: std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()),
-                openai_search_agent_model: "gpt-4o-mini".to_string(),
-                openai_assistant_agent_model: "gpt-4o-mini".to_string(),
+                openai_search_agent_model: "gpt-4.1-mini".to_string(),
+                openai_assistant_agent_model: "gpt-4.1-mini".to_string(),
                 openai_search_agent_temperature: 0.0,
                 openai_assistant_agent_temperature: 0.1,
-                openai_max_tokens: 100u32, // Small for tests
+                openai_max_tokens: 200u32, // Small for tests
                 ..Default::default()
             }),
         }
@@ -529,8 +529,7 @@ mod tests {
 
     fn skip_if_no_api_key() {
         if std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test_key".to_string()) == "test_key" {
-            eprintln!("Skipping LLM test: OPENAI_API_KEY not set");
-            return;
+            panic!("OPENAI_API_KEY not set! Tests require a valid API key to run.");
         }
     }
 
@@ -573,10 +572,6 @@ mod tests {
         skip_if_no_api_key();
         
         let config = create_test_config();
-        if config.inner.openai_api_key == "test_key" {
-            return; // Skip test if no API key
-        }
-
         let client = LlmClient::openai(&config);
         let context = create_test_web_search_context("What is Rust programming language?");
 
@@ -592,10 +587,6 @@ mod tests {
         skip_if_no_api_key();
         
         let config = create_test_config();
-        if config.inner.openai_api_key == "test_key" {
-            return; // Skip test if no API key
-        }
-
         let client = LlmClient::openai(&config);
         let context = create_test_message_search_context("Find messages about deployment issues");
 
@@ -613,10 +604,6 @@ mod tests {
         skip_if_no_api_key();
         
         let config = create_test_config();
-        if config.inner.openai_api_key == "test_key" {
-            return; // Skip test if no API key
-        }
-
         let client = LlmClient::openai(&config);
         let context = create_test_assistant_context("Hello, can you help me with a simple question?");
 
@@ -646,10 +633,6 @@ mod tests {
         skip_if_no_api_key();
         
         let config = create_test_config();
-        if config.inner.openai_api_key == "test_key" {
-            return; // Skip test if no API key
-        }
-
         let client = LlmClient::openai(&config);
         let mut context = create_test_message_search_context("");
         context.channel_context = "".to_string();
@@ -665,10 +648,6 @@ mod tests {
         skip_if_no_api_key();
         
         let config = create_test_config();
-        if config.inner.openai_api_key == "test_key" {
-            return; // Skip test if no API key
-        }
-
         let client = LlmClient::openai(&config);
         
         // Create a very large context to test token limits

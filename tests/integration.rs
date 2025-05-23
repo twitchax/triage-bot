@@ -46,6 +46,8 @@ fn get_mock_chat() -> MockChat {
     mock
 }
 
+use futures::StreamExt;
+
 /// Helper function to setup the test environment.
 async fn setup_test_environment() -> Runtime {
     // Create a test configuration
@@ -80,14 +82,33 @@ async fn setup_test_environment() -> Runtime {
     Runtime { config, db, llm, chat }
 }
 
+/// Wait for a channel to be processed by polling for changes
+async fn wait_for_channel_processed(db: &DbClient, channel_id: &str, max_attempts: u32, delay_ms: u64) -> Result<(), anyhow::Error> {
+    // Poll the channel status until it is processed or timeout
+    for attempt in 1..=max_attempts {
+        // Check if the channel exists and has directive
+        let channel = db.get_or_create_channel(channel_id).await?;
+        
+        // Channel is processed if it has notes in the directive
+        if !channel.channel_directive.your_notes.is_empty() {
+            return Ok(());
+        }
+        
+        // Wait before trying again
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+    }
+    
+    Err(anyhow::anyhow!("Timeout waiting for channel to be processed"))
+}
+
 #[tokio::test]
 async fn test_app_mention_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     // Create a test channel
@@ -116,8 +137,9 @@ async fn test_app_mention_integration() {
         runtime.chat.clone(),
     );
 
-    // Give the async task some time to complete
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    // Wait for processing using polling
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
+        .expect("Failed waiting for channel to be processed");
 
     // Verify the channel was created in the database
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
@@ -136,9 +158,9 @@ async fn test_context_update_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     let channel_id = "C02CONTEXTTEST";
@@ -164,8 +186,9 @@ async fn test_context_update_integration() {
         runtime.chat.clone(),
     );
 
-    // Wait for processing
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    // Wait for processing using polling
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
+        .expect("Failed waiting for channel to be processed");
 
     // Verify the channel exists and has been processed
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
@@ -182,9 +205,9 @@ async fn test_add_context_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     let channel_id = "C03ADDCONTEXT";
@@ -221,8 +244,9 @@ async fn test_add_context_integration() {
         runtime.chat.clone(),
     );
 
-    // Wait for processing
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    // Wait for processing using polling
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
+        .expect("Failed waiting for channel to be processed");
 
     // Verify context has been added/updated
     let context = runtime.db.get_channel_context(channel_id).await.expect("Failed to get context");
@@ -238,9 +262,9 @@ async fn test_message_search_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     let channel_id = "C04SEARCHTEST";
@@ -282,8 +306,9 @@ async fn test_message_search_integration() {
         runtime.chat.clone(),
     );
 
-    // Wait for processing
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    // Wait for processing using polling
+    wait_for_channel_processed(&runtime.db, channel_id, 50, 200).await
+        .expect("Failed waiting for channel to be processed");
 
     // Verify the channel processing completed
     let channel = runtime.db.get_or_create_channel(channel_id).await.expect("Failed to get channel");
@@ -299,9 +324,9 @@ async fn test_multiple_channel_isolation_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     let channel1 = "C05ISOLATION1";
@@ -346,8 +371,11 @@ async fn test_multiple_channel_isolation_integration() {
         runtime.chat.clone(),
     );
 
-    // Wait for both to process
-    tokio::time::sleep(tokio::time::Duration::from_secs(6)).await;
+    // Wait for both channels to be processed
+    wait_for_channel_processed(&runtime.db, channel1, 50, 200).await
+        .expect("Failed waiting for channel1 to be processed");
+    wait_for_channel_processed(&runtime.db, channel2, 50, 200).await
+        .expect("Failed waiting for channel2 to be processed");
 
     // Verify channels exist and are different
     let chan1 = runtime.db.get_or_create_channel(channel1).await.expect("Failed to get channel 1");
@@ -366,9 +394,9 @@ async fn test_error_handling_integration() {
     // Set up the test environment  
     let runtime = setup_test_environment().await;
 
-    // Skip if no API key
+    // Fail if no API key
     if runtime.config.inner.openai_api_key == "test_key" {
-        return;
+        panic!("OPENAI_API_KEY not set! Integration tests require a valid API key to run.");
     }
 
     let channel_id = "C06ERRORTEST";
@@ -394,8 +422,9 @@ async fn test_error_handling_integration() {
         runtime.chat.clone(),
     );
 
-    // Wait and verify system is still functioning
-    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    // Wait for a short time - this might not trigger LiveQuery since there might be no changes
+    // We'll just use a short timeout here as we're mainly testing error handling
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Should still be able to create/get channel even after error
     let channel = runtime.db.get_or_create_channel(channel_id).await;
