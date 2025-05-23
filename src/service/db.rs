@@ -32,6 +32,8 @@ pub trait GenericDbClient: Send + Sync + 'static {
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
     /// Gets additional context for the channel.
     async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
+    /// Searches for messages in the channel that match the search string.
+    async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String>;
 }
 
 /// Database client for triage-bot.
@@ -225,6 +227,39 @@ impl GenericDbClient for SurrealDbClient {
 
         info!("Retrieved context for channel `{}`.", channel_id);
 
+        Ok(result)
+    }
+
+    #[instrument(skip(self))]
+    async fn search_messages(&self, channel_id: &str, search_terms: &str) -> Res<String> {
+        // Split the search terms by comma and create a query that searches for any of the terms
+        let terms: Vec<&str> = search_terms.split(',').map(|s| s.trim()).collect();
+        
+        // Prepare the query to search for messages containing any of the search terms
+        let mut query = String::from("SELECT message FROM type::thing('channel', $channel_id)->has_message->message WHERE ");
+        
+        // Add conditions for each search term using CONTAINS to search within the message field
+        for (i, term) in terms.iter().enumerate() {
+            if i > 0 {
+                query.push_str(" OR ");
+            }
+            query.push_str(&format!("string::lowercase(string(message.message.text)) CONTAINS string::lowercase('{}')", term));
+        }
+        
+        query.push_str(" LIMIT 10;"); // Limit to 10 most relevant messages
+        
+        // Execute the query
+        let messages: Vec<Message> = self
+            .db
+            .query(&query)
+            .bind(("channel_id", channel_id.to_string()))
+            .await?
+            .take(0)?;
+        
+        let result = serde_json::to_string(&messages)?;
+        
+        info!("Retrieved {} messages for channel `{}` matching search terms: {}", messages.len(), channel_id, search_terms);
+        
         Ok(result)
     }
 }

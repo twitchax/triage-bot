@@ -48,6 +48,11 @@ fn default_search_agent_directive() -> String {
     prompts::SEARCH_AGENT_SYSTEM_DIRECTIVE.to_string()
 }
 
+/// Default message search agent directive for the assistant agent.
+fn default_message_search_agent_directive() -> String {
+    prompts::MESSAGE_SEARCH_AGENT_SYSTEM_DIRECTIVE.to_string()
+}
+
 /// Configuration for the triage-bot application.
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -81,6 +86,9 @@ pub struct ConfigInner {
     /// Optional custom search agent directive to override the default (`SEARCH_AGENT_DIRECTIVE`).
     #[serde(default = "default_search_agent_directive")]
     pub search_agent_system_directive: String,
+    /// Optional custom message search agent directive to override the default (`MESSAGE_SEARCH_AGENT_DIRECTIVE`).
+    #[serde(default = "default_message_search_agent_directive")]
+    pub message_search_agent_system_directive: String,
     /// Sampling temperature to use for OpenAI search agent model (`OPENAI_SEARCH_AGENT_TEMPERATURE`).
     /// Value between 0 and 2. Higher values like 0.8 make output more random,
     /// while lower values like 0.2 make it more focused and deterministic.
