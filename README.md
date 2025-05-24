@@ -82,10 +82,10 @@ Configuration is handled through environment variables or a config file (`.hidde
 | `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE` | Sampling temperature for search agent | `0.0` |
 | `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE` | Sampling temperature for assistant agent | `0.7` |
 | `TRIAGE_BOT_OPENAI_MAX_TOKENS` | Maximum output tokens | `65536` |
-| `TRIAGE_BOT_DISABLE_WEB_SERVER` | Disable the web server | `false` |
-| `TRIAGE_BOT_SLACK_SIGNING_VERSION` | Slack signing version | Default in code |
-| `TRIAGE_BOT_WEB_PORT` | Port for the web server | Default in code |
-| `TRIAGE_BOT_TRACE_LEVEL` | Tracing level for logs | Default in code |
+| `TRIAGE_BOT_SYSTEM_DIRECTIVE` | Custom system directive for the assistant agent | Default in code |
+| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE` | Custom mention addendum directive for the assistant agent | Default in code |
+| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE` | Custom search agent directive | Default in code |
+| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE` | Custom message search agent directive | Default in code |
 
 Each environment variable can also be specified in a `.hidden/config.toml` file:
 
@@ -107,11 +107,11 @@ Triage-bot is designed with modularity and extensibility in mind, built around t
 
 ### Default Implementations
 
-1. **Slack Integration** - The default chat client implementation connects to Slack using socket mode.
+1. **Slack Integration**: The default chat client implementation connects to Slack using socket mode.
 
-2. **SurrealDB Storage** - The default database client uses SurrealDB to store channel configurations, context, and message history.
+2. **SurrealDB Storage**: The default database client uses SurrealDB to store channel configurations, context, and message history.
 
-3. **OpenAI Integration** - The LLM client uses OpenAI's API to generate responses and perform searches.
+3. **OpenAI Integration**: The LLM client uses OpenAI's API to generate responses and perform searches.
 
 ### Extensibility Through Traits
 
