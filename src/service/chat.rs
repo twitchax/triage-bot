@@ -1,4 +1,12 @@
-//! Wrapper around chat clients.
+//! Chat service integration for triage-bot.
+//!
+//! This module provides functionality for interacting with chat platforms like Slack:
+//! - Receiving messages and events
+//! - Sending messages and reactions
+//! - Retrieving conversation context
+//!
+//! It defines the `GenericChatClient` trait that can be implemented for different
+//! chat services, with a default implementation for Slack.
 
 use crate::{
     base::{
@@ -25,17 +33,40 @@ type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsCon
 // Traits.
 
 /// Generic "chat" trait that clients must implement.
+///
+/// This trait defines the core functionality for interacting with chat platforms
+/// like Slack. Implementing this trait allows different chat services to be used
+/// with the triage-bot.
 #[async_trait]
 pub trait GenericChatClient: Send + Sync + 'static {
     /// Get the bot user ID.
+    ///
+    /// Returns the unique identifier for the bot in the chat platform,
+    /// which is used to detect when the bot is mentioned.
     fn bot_user_id(&self) -> &str;
+    
     /// Start the chat client listener.
+    ///
+    /// This sets up event listeners for the chat platform and begins processing
+    /// incoming messages and events.
     async fn start(&self) -> Void;
+    
     /// Send a message to a channel thread.
+    ///
+    /// Used to post responses in threads, allowing the bot to reply to user
+    /// messages in a structured way.
     async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
+    
     /// React to a message with an emoji.
+    ///
+    /// Adds an emoji reaction to a message, which can be used to indicate
+    /// the type of issue or state of a request.
     async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
+    
     /// Get the entirety of the thread context.
+    ///
+    /// Retrieves all messages in a thread, which provides context for
+    /// generating more relevant responses.
     async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
 }
 

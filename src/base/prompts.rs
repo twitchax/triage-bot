@@ -1,6 +1,15 @@
-//! Example prompt templates for LLM usage.
+//! System prompts and directives for LLM agents used by triage-bot.
+//!
+//! This module contains the core prompt templates that define how each LLM agent
+//! should behave, including:
+//! - Assistant agent system directive that governs the main triage bot behavior
+//! - Mention-specific directive for when users directly mention the bot
+//! - Search agent directive for web search functionality
+//! - Message search directive for finding relevant channel history
 
-/// System directive.
+/// System directive that governs the core behavior of the assistant agent.
+/// This directive instructs the LLM to act as TriageBot and outlines its
+/// primary responsibilities and interaction patterns.
 pub const ASSISTANT_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 # Prime Directive (v2025-05-21)
 
@@ -115,7 +124,8 @@ When in doubt, output the minimal JSON with `"type": "NoAction"`.
 
 "#####;
 
-/// @-mention directive.
+/// Directive that governs how the assistant responds when directly @-mentioned.
+/// This extends the main directive with specific behaviors for direct interaction.
 pub const ASSISTANT_AGENT_MENTION_DIRECTIVE: &str = r#####"
 ### @-Mention Directive
 
@@ -145,7 +155,8 @@ and stay silent.
 
 "#####;
 
-/// A directive for the search agent.
+/// A directive for the web search agent that instructs how to prepare
+/// search results based on user questions.
 pub const SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 # Web Search System Directive
 
@@ -163,7 +174,8 @@ pub const SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 > * Return the raw search findings in a clear format so another system can use them to answer the original question.
 "#####;
 
-/// A directive for the message search agent.
+/// A directive for the message search agent that extracts search terms
+/// from user messages to find relevant channel history.
 pub const MESSAGE_SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 # Message Search System Directive
 

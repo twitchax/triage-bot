@@ -1,4 +1,12 @@
 //! Database implementation for triage-bot data storage.
+//!
+//! This module provides database functionality for storing and retrieving:
+//! - Channel information and directives
+//! - Message history and context
+//! - Search capabilities for finding relevant past messages
+//!
+//! It defines the `GenericDbClient` trait that can be implemented for different
+//! database backends, with a default implementation for SurrealDB.
 
 use std::{ops::Deref, sync::Arc};
 
@@ -20,19 +28,45 @@ use tracing::{info, instrument};
 // Traits.
 
 /// Generic database client trait that clients must implement.
+///
+/// This trait defines the core functionality for storing and retrieving
+/// channel data, context, and messages. Implementing this trait allows
+/// different database backends to be used with the triage-bot.
 #[async_trait]
 pub trait GenericDbClient: Send + Sync + 'static {
     /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
+    ///
+    /// This is used to ensure a channel exists before operating on it, and
+    /// to retrieve channel-specific settings.
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
-    /// Updates the channel prompt in the database.
+    
+    /// Updates the channel directive in the database.
+    ///
+    /// The directive controls how the bot behaves in the specific channel,
+    /// such as which issues to prioritize or which team to notify.
     async fn update_channel_directive(&self, channel_id: &str, directive: &LlmContext) -> Res<()>;
+    
     /// Adds a context JSON to the channel via a `has_context` edge.
+    ///
+    /// This stores additional contextual information that the bot can use
+    /// when responding to messages in the channel.
     async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()>;
+    
     /// Adds a message to the database that can then be retrieved by the bot.
+    ///
+    /// This creates a searchable history of messages in the channel.
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
+    
     /// Gets additional context for the channel.
+    ///
+    /// This retrieves all contextual information that has been stored for the channel,
+    /// which helps the bot generate more relevant responses.
     async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
+    
     /// Searches for messages in the channel that match the search string.
+    ///
+    /// This allows the bot to find relevant past discussions when responding to new questions.
+    /// The search_terms parameter should contain comma-separated keywords.
     async fn search_channel_messages(&self, channel_id: &str, search_terms: &str) -> Res<String>;
 }
 
