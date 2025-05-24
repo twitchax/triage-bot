@@ -1,7 +1,16 @@
+//! Common types, results, and data structures used throughout triage-bot.
+//!
+//! This module defines core types and structures that are shared across the application,
+//! including error handling types, context structures for LLM interactions, and response
+//! types from the assistant.
+
 use serde::{Deserialize, Serialize};
 
+/// Standard error type used throughout the application.
 pub type Err = anyhow::Error;
+/// Standard result type with unified error handling.
 pub type Res<T> = Result<T, Err>;
+/// Convenience type for operations that return nothing but may fail.
 pub type Void = Res<()>;
 
 /// The classification of the assistant's response.
@@ -16,6 +25,9 @@ pub enum AssistantClassification {
 }
 
 /// An enum representing the different types of responses from the LLM.
+/// 
+/// This includes both direct responses (like replies or taking no action)
+/// and tool calls that perform operations like updating context or directives.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum AssistantResponse {
@@ -36,7 +48,10 @@ pub enum AssistantResponse {
     },
 }
 
-/// Helper struct to handle the context for the search LLM.
+/// Helper struct to handle the context for the web search LLM.
+/// 
+/// Contains all necessary information for the search agent to understand
+/// the user's message and provide relevant search results.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct WebSearchContext {
     pub user_message: String,
@@ -47,6 +62,9 @@ pub struct WebSearchContext {
 }
 
 /// Helper struct to handle the context for the message search LLM.
+/// 
+/// Contains all necessary information for the message search agent to
+/// identify keywords from the user's message to find relevant channel history.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct MessageSearchContext {
     pub user_message: String,
@@ -57,6 +75,10 @@ pub struct MessageSearchContext {
 }
 
 /// Helper struct to handle the context for the assistant LLM.
+/// 
+/// Contains all necessary information for the assistant agent to understand
+/// the user's message, channel settings, and relevant context to generate
+/// an appropriate response.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct AssistantContext {
     pub user_message: String,
