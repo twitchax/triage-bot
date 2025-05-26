@@ -14,9 +14,9 @@ use anyhow::Context;
 use async_openai::{
     Client,
     config::OpenAIConfig,
-    types::{
-        Content, CreateResponseRequestArgs, CreateResponseResponse, FunctionArgs, InputItem, InputMessageArgs, OutputContent, ResponseFormatJsonSchema, ResponseInput, ResponsesRole, TextConfig,
-        TextResponseFormat, ToolDefinition, WebSearchPreviewArgs,
+    types::responses::{
+        Content, CreateResponseArgs, FunctionArgs, Input, InputItem, InputMessageArgs, OutputContent, Response, ResponseFormatJsonSchema, Role, TextConfig, TextResponseFormat, ToolDefinition,
+        WebSearchPreviewArgs,
     },
 };
 use async_trait::async_trait;
@@ -84,29 +84,29 @@ impl OpenAiLlmClient {
 
     /// Build the web search input.
     #[instrument(name = "OpenAiLlmClient::build_web_search_input", skip_all)]
-    fn build_web_search_input(&self, context: &WebSearchContext) -> Res<ResponseInput> {
-        Ok(ResponseInput::Items(vec![
+    fn build_web_search_input(&self, context: &WebSearchContext) -> Res<Input> {
+        Ok(Input::Items(vec![
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::System)
+                    .role(Role::System)
                     .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::User)
+                    .role(Role::User)
                     .content(format!("# User Message\n\n{}\n\n", context.user_message))
                     .build()?,
             ),
@@ -115,29 +115,29 @@ impl OpenAiLlmClient {
 
     /// Build the message search input.
     #[instrument(name = "OpenAiLlmClient::build_message_search_input", skip_all)]
-    fn build_message_search_input(&self, context: &MessageSearchContext) -> Res<ResponseInput> {
-        Ok(ResponseInput::Items(vec![
+    fn build_message_search_input(&self, context: &MessageSearchContext) -> Res<Input> {
+        Ok(Input::Items(vec![
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::System)
+                    .role(Role::System)
                     .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::User)
+                    .role(Role::User)
                     .content(format!("# User Message\n\n{}\n\n", context.user_message))
                     .build()?,
             ),
@@ -146,53 +146,53 @@ impl OpenAiLlmClient {
 
     /// Build the response input including search results.
     #[instrument(name = "OpenAiLlmClient::build_response_input", skip_all)]
-    fn build_assistant_agent_input(&self, context: &AssistantContext) -> Res<ResponseInput> {
-        Ok(ResponseInput::Items(vec![
+    fn build_assistant_agent_input(&self, context: &AssistantContext) -> Res<Input> {
+        Ok(Input::Items(vec![
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Your User ID: `{}`\n\n", context.bot_user_id))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::System)
+                    .role(Role::System)
                     .content(format!("## Assistant Agent Mention Directive\n\n{}\n\n", self.config.assistant_agent_mention_directive))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Channel Directive\n\n{}\n\n", context.channel_directive))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Channel Context\n\n{}\n\n", context.channel_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Thread Context\n\n{}\n\n", context.thread_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Web Search Results\n\n{}\n\n", context.web_search_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::Developer)
+                    .role(Role::Developer)
                     .content(format!("## Message Search Results (in order of likely relevance)\n\n{}\n\n", context.message_search_context))
                     .build()?,
             ),
             InputItem::Message(
                 InputMessageArgs::default()
-                    .role(ResponsesRole::User)
+                    .role(Role::User)
                     .content(format!("# User Message\n\n{}\n\n", context.user_message))
                     .build()?,
             ),
@@ -214,7 +214,7 @@ impl GenericLlmClient for OpenAiLlmClient {
         let text_config = TextConfig { format: TextResponseFormat::Text };
 
         // Create the request
-        let request = CreateResponseRequestArgs::default()
+        let request = CreateResponseArgs::default()
             .instructions(self.config.search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .temperature(self.config.openai_search_agent_temperature)
@@ -243,7 +243,7 @@ impl GenericLlmClient for OpenAiLlmClient {
         let text_config = TextConfig { format: TextResponseFormat::Text };
 
         // Create the request
-        let request = CreateResponseRequestArgs::default()
+        let request = CreateResponseArgs::default()
             .instructions(self.config.message_search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .temperature(self.config.openai_search_agent_temperature) // Reuse the search agent temperature
@@ -286,7 +286,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         #[allow(clippy::never_loop)]
         let result = loop {
-            let mut request = CreateResponseRequestArgs::default();
+            let mut request = CreateResponseArgs::default();
 
             request
                 .max_output_tokens(self.config.openai_max_tokens)
@@ -307,6 +307,15 @@ impl GenericLlmClient for OpenAiLlmClient {
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_structured_response(&response)?;
 
+            // TODO: This is where we might want to handle multiple responses.
+            // For example, if the LLM returns a "tool call" response for adding context,
+            // we could send it a message saying that the context has been added, and
+            // then, it may choose to reply to the user.
+
+            // TODO: We also may want to handle a "context needed" tool (which does not yet exist),
+            // that can handle cases where the LLM needs more information to proceed.  We then ping the user, see
+            // if we get anything back, and then re-run the request with the new context (preserving the request id).
+
             // This may change, but for now, always break after one message.
             break result;
         };
@@ -317,7 +326,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
 /// Parse the OpenAI text response (usually only web search available).
 #[instrument(skip_all)]
-pub fn parse_openai_text_response(response: &CreateResponseResponse) -> Res<Vec<String>> {
+pub fn parse_openai_text_response(response: &Response) -> Res<Vec<String>> {
     let mut result = Vec::new();
 
     info!("LLM text response has {} outputs.", response.output.len());
@@ -345,8 +354,8 @@ pub fn parse_openai_text_response(response: &CreateResponseResponse) -> Res<Vec<
                     }
                 }
             }
-            OutputContent::WebSearchCall(web_search_call) => {
-                info!("Web search tool called in text response: {web_search_call:#?}");
+            OutputContent::WebSearchCall(_web_search_call) => {
+                info!("Web search tool called in text response ...");
             }
             _ => {
                 warn!("Unknown output in text response: {output:#?}");
@@ -360,7 +369,7 @@ pub fn parse_openai_text_response(response: &CreateResponseResponse) -> Res<Vec<
 
 /// Parse the OpenAI structured response (and, therefore, check for local tool calls).
 #[instrument(skip_all)]
-pub fn parse_openai_structured_response(response: &CreateResponseResponse) -> Res<Vec<AssistantResponse>> {
+pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<AssistantResponse>> {
     let mut result = Vec::new();
 
     info!("LLM response has {} outputs.", response.output.len());

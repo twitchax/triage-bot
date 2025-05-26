@@ -8,11 +8,12 @@ use crate::base::{
 };
 use anyhow::{Ok, anyhow};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use surrealdb::{
     Connection, RecordId, Surreal,
     engine::remote::ws::{Client, Ws},
+    method::Stream,
     opt::auth::Root,
 };
 use tracing::{info, instrument};
@@ -22,31 +23,49 @@ use tracing::{info, instrument};
 /// Generic database client trait that clients must implement.
 #[async_trait]
 pub trait GenericDbClient: Send + Sync + 'static {
+    type LlmContextType: LlmContext;
+    type ChannelType: Channel;
+    type MessageType: Message;
+
     /// Gets the channel from the database by its ID; or, creates a new channel if it doesn't exist.
-    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel>;
+    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Self::ChannelType>;
     /// Updates the channel prompt in the database.
-    async fn update_channel_directive(&self, channel_id: &str, directive: &LlmContext) -> Res<()>;
+    async fn update_channel_directive(&self, channel_id: &str, directive: &Self::LlmContextType) -> Res<()>;
     /// Adds a context JSON to the channel via a `has_context` edge.
-    async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()>;
+    async fn add_channel_context(&self, channel_id: &str, context: &Self::LlmContextType) -> Res<()>;
     /// Adds a message to the database that can then be retrieved by the bot.
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
     /// Gets additional context for the channel.
     async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
     /// Searches for messages in the channel that match the search string.
     async fn search_channel_messages(&self, channel_id: &str, search_terms: &str) -> Res<String>;
+    /// Starts a stream of a live query for channels.
+    async fn get_channel_live_query(&self) -> Res<Stream<Vec<Self::ChannelType>>>;
+    /// Starts a stream of a live query for contexts.
+    async fn get_context_live_query(&self) -> Res<Stream<Vec<Self::LlmContextType>>>;
 }
 
 /// Database client for triage-bot.
 ///
 /// This is trivially cloneable and can be passed around without the need for `Arc` or `Mutex`.
 #[derive(Clone)]
-pub struct DbClient {
+pub struct DbClient<L = SurrealLlmContext, C = SurrealChannel, M = SurrealMessage>
+where
+    L: LlmContext,
+    C: Channel,
+    M: Message,
+{
     /// The database client instance.
-    pub inner: Arc<dyn GenericDbClient>,
+    pub inner: Arc<dyn GenericDbClient<LlmContextType = L, ChannelType = C, MessageType = M>>,
 }
 
-impl Deref for DbClient {
-    type Target = dyn GenericDbClient;
+impl<L, C, M> Deref for DbClient<L, C, M>
+where
+    L: LlmContext,
+    C: Channel,
+    M: Message,
+{
+    type Target = dyn GenericDbClient<LlmContextType = L, ChannelType = C, MessageType = M>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref()
@@ -62,31 +81,93 @@ impl DbClient {
     }
 }
 
-// Data types.
+// Data type traits.
 
-// A Context in the database.
+/// Generic trait for an LLM context in a generic database.
+pub trait LlmContext: std::fmt::Debug + Serialize + DeserializeOwned + Clone + PartialEq + Eq + 'static {
+    /// Get the context ID.
+    fn id(&self) -> Option<String>;
+    /// Get the user message.
+    fn user_message(&self) -> &Value;
+    /// Get the notes.
+    fn your_notes(&self) -> &str;
+}
+
+/// Generic trait for a channel in a generic database.
+pub trait Channel: std::fmt::Debug + Serialize + DeserializeOwned + Clone + PartialEq + Eq + 'static {
+    /// Get the channel ID.
+    fn id(&self) -> Option<String>;
+    /// Get the channel directive.
+    fn channel_directive(&self) -> &impl LlmContext;
+}
+
+/// Generic trait for a message in a generic database.
+pub trait Message: std::fmt::Debug + Serialize + DeserializeOwned + Clone + PartialEq + Eq + 'static {
+    /// Get the message ID.
+    fn id(&self) -> Option<String>;
+    /// Get the raw message content.
+    fn raw(&self) -> &Value;
+}
+
+// Surreal Data types.
+
+/// A context in a surreal database.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct LlmContext {
+pub struct SurrealLlmContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
     pub user_message: Value,
     pub your_notes: String,
 }
 
-// A Channel in the database.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Channel {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<RecordId>,
-    pub channel_directive: LlmContext,
+impl LlmContext for SurrealLlmContext {
+    fn id(&self) -> Option<String> {
+        self.id.as_ref().map(|id| id.to_string())
+    }
+
+    fn user_message(&self) -> &Value {
+        &self.user_message
+    }
+
+    fn your_notes(&self) -> &str {
+        &self.your_notes
+    }
 }
 
-/// A message in the database.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message {
+/// A channel in a surreal database.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct SurrealChannel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<RecordId>,
+    pub channel_directive: SurrealLlmContext,
+}
+
+impl Channel for SurrealChannel {
+    fn id(&self) -> Option<String> {
+        self.id.as_ref().map(|id| id.to_string())
+    }
+
+    fn channel_directive(&self) -> &impl LlmContext {
+        &self.channel_directive
+    }
+}
+
+/// A message in a surreal database.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct SurrealMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RecordId>,
     pub raw: Value,
+}
+
+impl Message for SurrealMessage {
+    fn id(&self) -> Option<String> {
+        self.id.as_ref().map(|id| id.to_string())
+    }
+
+    fn raw(&self) -> &Value {
+        &self.raw
+    }
 }
 
 // SurrealDB client implementation.
@@ -152,9 +233,13 @@ impl<C> GenericDbClient for SurrealDbClient<C>
 where
     C: Connection,
 {
+    type ChannelType = SurrealChannel;
+    type LlmContextType = SurrealLlmContext;
+    type MessageType = SurrealMessage;
+
     #[instrument(skip(self))]
-    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Channel> {
-        let channel: Option<Channel> = self.select(("channel", channel_id)).await?;
+    async fn get_or_create_channel(&self, channel_id: &str) -> Res<Self::ChannelType> {
+        let channel: Option<Self::ChannelType> = self.select(("channel", channel_id)).await?;
 
         if let Some(channel) = channel {
             info!("Channel `{}` found.", channel_id);
@@ -163,24 +248,24 @@ where
         } else {
             info!("Channel `{}` not found, creating a new one.", channel_id);
 
-            let new_channel = Channel {
+            let new_channel = Self::ChannelType {
                 id: None,
-                channel_directive: LlmContext {
+                channel_directive: Self::LlmContextType {
                     id: None,
                     user_message: json!({ "ignore": "Channel directive has not been set yet." }),
                     your_notes: "No notes.".into(),
                 },
             };
 
-            let channel: Channel = self.create(("channel", channel_id)).content(new_channel).await?.ok_or(anyhow!("Failed to create channel"))?;
+            let channel: Self::ChannelType = self.create(("channel", channel_id)).content(new_channel).await?.ok_or(anyhow!("Failed to create channel"))?;
 
             Ok(channel)
         }
     }
 
     #[instrument(skip(self, directive))]
-    async fn update_channel_directive(&self, channel_id: &str, directive: &LlmContext) -> Void {
-        let _: Option<Channel> = self.update(("channel", channel_id)).merge(json!({ "channel_directive": directive })).await?;
+    async fn update_channel_directive(&self, channel_id: &str, directive: &Self::LlmContextType) -> Void {
+        let _: Option<Self::ChannelType> = self.update(("channel", channel_id)).merge(json!({ "channel_directive": directive })).await?;
 
         info!("Channel `{}` updated.", channel_id);
 
@@ -188,7 +273,7 @@ where
     }
 
     #[instrument(skip(self, context))]
-    async fn add_channel_context(&self, channel_id: &str, context: &LlmContext) -> Res<()> {
+    async fn add_channel_context(&self, channel_id: &str, context: &Self::LlmContextType) -> Res<()> {
         let mut response = self
             .db
             .query("BEGIN TRANSACTION;")
@@ -212,7 +297,7 @@ where
 
     #[instrument(skip(self, message))]
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()> {
-        let message = Message { id: None, raw: message.clone() };
+        let message = Self::MessageType { id: None, raw: message.clone() };
 
         let mut response = self
             .db
@@ -237,7 +322,7 @@ where
 
     #[instrument(skip(self))]
     async fn get_channel_context(&self, channel_id: &str) -> Res<String> {
-        let context: Vec<LlmContext> = self
+        let context: Vec<Self::LlmContextType> = self
             .db
             .query("SELECT * FROM type::thing('channel', $channel_id)->has_context->context;")
             .bind(("channel_id", channel_id.to_string()))
@@ -277,7 +362,7 @@ where
 
         // Get messages from the channel that match the search terms
         // Use the full-text search capabilities
-        let messages: Vec<Message> = self
+        let messages: Vec<SurrealMessage> = self
             .db
             .query(format!(
                 r####"
@@ -301,6 +386,20 @@ where
         info!("Retrieved {} ranked messages for channel `{}` matching search terms: {}", messages.len(), channel_id, search_terms);
 
         Ok(result)
+    }
+
+    #[instrument(skip(self))]
+    async fn get_channel_live_query(&self) -> Res<Stream<Vec<Self::ChannelType>>> {
+        let stream = self.db.select("channel").live().await?;
+
+        Ok(stream)
+    }
+
+    #[instrument(skip(self))]
+    async fn get_context_live_query(&self) -> Res<Stream<Vec<Self::LlmContextType>>> {
+        let stream = self.db.select("context").live().await?;
+
+        Ok(stream)
     }
 }
 
@@ -377,7 +476,7 @@ mod tests {
         client.get_or_create_channel("C1").await.unwrap();
 
         // Update the directive
-        let new_directive = LlmContext {
+        let new_directive = SurrealLlmContext {
             id: None,
             user_message: json!({ "directive": "new channel directive" }),
             your_notes: "Updated notes.".into(),
@@ -400,7 +499,7 @@ mod tests {
         client.get_or_create_channel("C1").await.unwrap();
 
         // Add context
-        let context = LlmContext {
+        let context = SurrealLlmContext {
             id: None,
             user_message: json!({ "context": "some context data" }),
             your_notes: "Context notes.".into(),
@@ -447,12 +546,12 @@ mod tests {
         assert_eq!(context, "[]");
 
         // Add some context
-        let context1 = LlmContext {
+        let context1 = SurrealLlmContext {
             id: None,
             user_message: json!({ "context": "first context" }),
             your_notes: "First notes.".into(),
         };
-        let context2 = LlmContext {
+        let context2 = SurrealLlmContext {
             id: None,
             user_message: json!({ "context": "second context" }),
             your_notes: "Second notes.".into(),
@@ -520,7 +619,7 @@ mod tests {
         assert_eq!(search_result, "[]");
 
         // Adding context/messages to nonexistent channel should create the channel implicitly
-        let context_obj = LlmContext {
+        let context_obj = SurrealLlmContext {
             id: None,
             user_message: json!({ "test": "value" }),
             your_notes: "Test notes.".into(),
@@ -544,12 +643,12 @@ mod tests {
         client.add_channel_message("C1", &json!({"text": "Channel 1 message"})).await.unwrap();
         client.add_channel_message("C2", &json!({"text": "Channel 2 message"})).await.unwrap();
 
-        let context1 = LlmContext {
+        let context1 = SurrealLlmContext {
             id: None,
             user_message: json!({ "channel": "first" }),
             your_notes: "Channel 1 context.".into(),
         };
-        let context2 = LlmContext {
+        let context2 = SurrealLlmContext {
             id: None,
             user_message: json!({ "channel": "second" }),
             your_notes: "Channel 2 context.".into(),

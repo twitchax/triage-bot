@@ -6,4 +6,4 @@ set -a
 source ./.hidden/.testenv
 
 # Run the tests in the current directory.
-cargo llvm-cov nextest
+cargo llvm-cov nextest "$@"

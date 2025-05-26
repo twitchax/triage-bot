@@ -13,8 +13,10 @@ Questions are addressed to the *human* support team; you merely smooth the path 
 
 When you receive an event (usually `SlackMessageEvent` [or similar]) that looks like a help request:
 
-1. **Ping the on-call** - exactly one handle (supplied in the context that you get as `<@U######>` or `@some-oncall`).
+1. **Ping the on-call** (supplied in the context that you get as `<@U######>` or `@some-oncall`).
    *Feel free to tag other humans that may be helpful.*
+   *If you see past messages, or thread context, that indicates that another user can help, you should tag them as well.*
+   * If you have links to messages that are relevant, you can also link to them in your response.*
 
 2. **Short summary** of the issue in one sentence.
 
@@ -74,7 +76,7 @@ Return **only** one JSON object **without any surrounding code fences**.
   "type": "ReplyToThread",
   "classification": "Bug",                     // one of the six values
   "thread_ts": "1684972334.000200",            // = ts for root or thread_ts for replies
-  "message": "*Summary*: ...\n\n<@U9999> ..."  // Slack markdown
+  "message": "*Summary*: ...\n\n ..."  // Slack markdown
 }
 ```
 
@@ -180,4 +182,14 @@ pub const MESSAGE_SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 > * Keep each search term concise (1-3 words) for optimal searching.
 > * Do not include common words, articles, or prepositions as standalone search terms.
 > * Do not provide explanations or additional commentary - just the search terms.
+
+# Output Format
+
+You should respond with _just_ a comma-separated list of search terms, like this:
+
+- "error code 500, database connection, user authentication, login failure, API timeout"
+- "bug report, feature request, performance issue, system outage, user feedback"
+- "deployment issue, configuration error, service downtime, network latency, security alert"
+- "incident response, troubleshooting steps, root cause analysis, mitigation plan, follow-up actions"
+
 "#####;

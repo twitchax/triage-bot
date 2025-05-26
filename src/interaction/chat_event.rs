@@ -7,7 +7,7 @@ use crate::{
     base::types::{AssistantClassification, AssistantContext, AssistantResponse, MessageSearchContext, Res, Void, WebSearchContext},
     service::{
         chat::ChatClient,
-        db::{DbClient, LlmContext},
+        db::{DbClient, SurrealLlmContext},
         llm::LlmClient,
     },
 };
@@ -86,7 +86,7 @@ where
             AssistantResponse::UpdateChannelDirective { message } => {
                 info!("Updating channel directive ...");
 
-                let directive = LlmContext {
+                let directive = SurrealLlmContext {
                     id: None,
                     user_message: serde_json::to_value(&event)?,
                     your_notes: message,
@@ -97,7 +97,7 @@ where
             AssistantResponse::UpdateContext { message } => {
                 info!("Updating context ...");
 
-                let context = LlmContext {
+                let context = SurrealLlmContext {
                     id: None,
                     user_message: serde_json::to_value(&event)?,
                     your_notes: message,
