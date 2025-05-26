@@ -44,30 +44,30 @@ pub trait GenericDbClient: Send + Sync + 'static {
     /// This is used to ensure a channel exists before operating on it, and
     /// to retrieve channel-specific settings.
     async fn get_or_create_channel(&self, channel_id: &str) -> Res<Self::ChannelType>;
-    
+
     /// Updates the channel directive in the database.
     ///
     /// The directive controls how the bot behaves in the specific channel,
     /// such as which issues to prioritize or which team to notify.
     async fn update_channel_directive(&self, channel_id: &str, directive: &Self::LlmContextType) -> Res<()>;
-    
+
     /// Adds a context JSON to the channel via a `has_context` edge.
     ///
     /// This stores additional contextual information that the bot can use
     /// when responding to messages in the channel.
     async fn add_channel_context(&self, channel_id: &str, context: &Self::LlmContextType) -> Res<()>;
-  
+
     /// Adds a message to the database that can then be retrieved by the bot.
     ///
     /// This creates a searchable history of messages in the channel.
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()>;
-    
+
     /// Gets additional context for the channel.
     ///
     /// This retrieves all contextual information that has been stored for the channel,
     /// which helps the bot generate more relevant responses.
     async fn get_channel_context(&self, channel_id: &str) -> Res<String>;
-    
+
     /// Searches for messages in the channel that match the search string.
     ///
     /// This allows the bot to find relevant past discussions when responding to new questions.
@@ -286,8 +286,8 @@ where
                 id: None,
                 channel_directive: Self::LlmContextType {
                     id: None,
-                    user_message: json!({ "ignore": "Channel directive has not been set yet." }),
-                    your_notes: "No notes.".into(),
+                    user_message: json!({}),
+                    your_notes: "".into(),
                 },
             };
 
@@ -495,7 +495,7 @@ mod tests {
 
         // Test channel creation
         let channel = client.get_or_create_channel("C1").await.unwrap();
-        assert!(serde_json::to_string(&channel.channel_directive).unwrap().contains("Channel directive has not been set yet."));
+        assert_eq!(serde_json::to_string(&channel.channel_directive).unwrap(), "{\"user_message\":{},\"your_notes\":\"\"}");
 
         // Test getting existing channel
         let existing_channel = client.get_or_create_channel("C1").await.unwrap();

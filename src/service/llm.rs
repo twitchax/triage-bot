@@ -539,6 +539,8 @@ fn get_openai_text_config() -> &'static TextConfig {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::base::config::ConfigInner;
 
@@ -630,7 +632,16 @@ mod tests {
 
         let config = create_test_config();
         let client = LlmClient::openai(&config);
-        let context = create_test_assistant_context("Hello, can you help me with a simple question?");
+
+        let message = json!({
+            "channel": "C12345",
+            "client_msg_id": "baa0e432-88fb-421a-a510-be2ebe434923",
+            "text": "Hello, can you help me with a simple question?",
+            "ts": "1234567890.123456",
+            "user": "U08STHUHMU1"
+        });
+
+        let context = create_test_assistant_context(&message.to_string());
 
         let responses = client.get_assistant_agent_response(&context).await.unwrap();
 

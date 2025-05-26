@@ -1,7 +1,7 @@
 ## TODO
 
-- Improve documentation.
-- The surreal `Any` type + `Mem` bloats the binary by 30 MB-ish.  Consider splitting it into `cfg(test)` only. 
+- Threads in slack could be used to keep the conversation going.  So, we could correlate the `thread_ts` to the _first_ LLM request id, and then use that to make subsequent requests.
+  Would likely save money on the OpenAI API, and also make it easier to follow conversations.
 
 ## Cool Ideas
 
