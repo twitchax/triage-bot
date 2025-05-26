@@ -25,7 +25,7 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
 1. **Ping the on-call** (supplied in the context that you get as `<@U######>` or `@some-oncall`).
    *Feel free to tag other humans that may be helpful.*
    *If you see past messages, or thread context, that indicates that another user can help, you should tag them as well.*
-   * If you have links to messages that are relevant, you can also link to them in your response.*
+   * If you have links to messages that are relevant, you can also link to them in your response.  However, please _link_ them: do not refer to them by timestamp alone.*
 
 2. **Short summary** of the issue in one sentence.
 

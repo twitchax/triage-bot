@@ -68,24 +68,24 @@ Note that top-level comments that don't tag the bot will also be responded to.
 
 Configuration is handled through environment variables or a config file (`.hidden/config.toml`). The bot supports the following configuration options:
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `TRIAGE_BOT_OPENAI_API_KEY` | OpenAI API key | (required) |
-| `TRIAGE_BOT_SLACK_APP_TOKEN` | Slack app token | (required) |
-| `TRIAGE_BOT_SLACK_BOT_TOKEN` | Slack bot token | (required) |
-| `TRIAGE_BOT_SLACK_SIGNING_SECRET` | Slack signing secret | (required) |
-| `TRIAGE_BOT_DB_ENDPOINT` | SurrealDB endpoint URL | (required) |
-| `TRIAGE_BOT_DB_USERNAME` | SurrealDB username | (required) |
-| `TRIAGE_BOT_DB_PASSWORD` | SurrealDB password | (required) |
-| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_MODEL` | OpenAI model for search agent | `gpt-4.1` |
-| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL` | OpenAI model for assistant agent | `o3-mini` |
-| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE` | Sampling temperature for search agent | `0.0` |
-| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE` | Sampling temperature for assistant agent | `0.7` |
-| `TRIAGE_BOT_OPENAI_MAX_TOKENS` | Maximum output tokens | `65536` |
-| `TRIAGE_BOT_SYSTEM_DIRECTIVE` | Custom system directive for the assistant agent | Default in code |
-| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE` | Custom mention addendum directive for the assistant agent | Default in code |
-| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE` | Custom search agent directive | Default in code |
-| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE` | Custom message search agent directive | Default in code |
+| Environment Variable                            | Description                                               | Default         |
+| ----------------------------------------------- | --------------------------------------------------------- | --------------- |
+| `TRIAGE_BOT_OPENAI_API_KEY`                     | OpenAI API key                                            | (required)      |
+| `TRIAGE_BOT_SLACK_APP_TOKEN`                    | Slack app token                                           | (required)      |
+| `TRIAGE_BOT_SLACK_BOT_TOKEN`                    | Slack bot token                                           | (required)      |
+| `TRIAGE_BOT_SLACK_SIGNING_SECRET`               | Slack signing secret                                      | (required)      |
+| `TRIAGE_BOT_DB_ENDPOINT`                        | SurrealDB endpoint URL                                    | (required)      |
+| `TRIAGE_BOT_DB_USERNAME`                        | SurrealDB username                                        | (required)      |
+| `TRIAGE_BOT_DB_PASSWORD`                        | SurrealDB password                                        | (required)      |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_MODEL`          | OpenAI model for search agent                             | `gpt-4.1`       |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL`       | OpenAI model for assistant agent                          | `o3`            |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE`    | Sampling temperature for search agent                     | `0.0`           |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE` | Sampling temperature for assistant agent                  | `0.7`           |
+| `TRIAGE_BOT_OPENAI_MAX_TOKENS`                  | Maximum output tokens                                     | `65536`         |
+| `TRIAGE_BOT_SYSTEM_DIRECTIVE`                   | Custom system directive for the assistant agent           | Default in code |
+| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE`         | Custom mention addendum directive for the assistant agent | Default in code |
+| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE`             | Custom search agent directive                             | Default in code |
+| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE`     | Custom message search agent directive                     | Default in code |
 
 Each environment variable can also be specified in a `.hidden/config.toml` file:
 

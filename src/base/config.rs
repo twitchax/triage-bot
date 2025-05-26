@@ -15,7 +15,7 @@ fn default_openai_search_agent_model() -> String {
 
 /// Default OpenAI assistant agent model to use
 fn default_openai_assistant_agent_model() -> String {
-    "o3-mini".to_string()
+    "o3".to_string()
 }
 
 /// Default sampling temperature for OpenAI search agent
