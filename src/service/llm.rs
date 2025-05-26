@@ -3,7 +3,7 @@
 //! This module provides a thin wrapper around LLM clients (e.g., OpenAI)
 //! for generating responses to user queries, performing web searches,
 //! and identifying relevant message search terms.
-//! 
+//!
 //! The module defines the `GenericLlmClient` trait that can be implemented
 //! for different LLM providers, with a default implementation for OpenAI.
 
@@ -39,19 +39,19 @@ use tracing::{info, instrument, warn};
 #[async_trait]
 pub trait GenericLlmClient: Send + Sync + 'static {
     /// Execute a web search using the search agent.
-    /// 
+    ///
     /// This method takes search context about a user message and returns
     /// relevant information from web searches to help answer the query.
     async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
-    
+
     /// Generate search terms for message search using the message search agent.
-    /// 
+    ///
     /// This method analyzes a user message and extracts key search terms that
     /// can be used to find relevant past messages in the channel history.
     async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
-    
+
     /// Generate a response from the primary assistant model.
-    /// 
+    ///
     /// This method takes a comprehensive context about the user's message,
     /// channel settings, web search results, and message search results, then
     /// generates appropriate responses or actions.
@@ -381,7 +381,6 @@ pub fn parse_openai_text_response(response: &Response) -> Res<Vec<String>> {
             }
             _ => {
                 warn!("Unknown output in text response: {output:#?}");
-                return Err(anyhow::anyhow!("Unknown output type in text response"));
             }
         }
     }
@@ -449,7 +448,6 @@ pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<Assistan
             }
             _ => {
                 warn!("Unknown output: {output:#?}");
-                return Err(anyhow::anyhow!("Unknown output type"));
             }
         }
     }
