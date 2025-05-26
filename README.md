@@ -9,8 +9,6 @@
 
 An OpenAI-powered triage bot for a slack support channel designed to tag oncalls, prioritize issues, suggest solutions, and streamline communication.
 
-## Usage
-
 ## Install
 
 Windows:
@@ -41,6 +39,91 @@ Cargo:
 ```bash
 $ cargo install triage-bot
 ```
+
+## Usage
+
+Triage-bot monitors your Slack support channels and automatically assists with user support requests. It integrates with your existing Slack workspace and requires minimal setup to get started.
+
+### Basic Workflow
+
+1. **User posts a message** in a Slack channel where triage-bot is active.
+2. **Triage-bot analyzes the message** using LLMs to determine the nature and urgency.
+3. **Bot takes appropriate actions**:
+   - Tags relevant on-call personnel.
+   - Classifies the issue (Bug, Feature, Question, Incident, Other).
+   - Provides helpful context from past discussions or web searches.
+   - Suggests potential solutions when confident.
+
+### Supported Commands
+
+Users can interact directly with triage-bot by @-mentioning it:
+
+- **Help requests**: `@triage-bot why is my build failing?`
+- **Context updates**: `@triage-bot please remember that FooService owns bar-api`
+- **Update channel directive**: `@triage-bot reset the channel directive to prioritize security incidents`
+
+Note that top-level comments that don't tag the bot will also be responded to.
+
+### Configuration
+
+Configuration is handled through environment variables or a config file (`.hidden/config.toml`). The bot supports the following configuration options:
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `TRIAGE_BOT_OPENAI_API_KEY` | OpenAI API key | (required) |
+| `TRIAGE_BOT_SLACK_APP_TOKEN` | Slack app token | (required) |
+| `TRIAGE_BOT_SLACK_BOT_TOKEN` | Slack bot token | (required) |
+| `TRIAGE_BOT_SLACK_SIGNING_SECRET` | Slack signing secret | (required) |
+| `TRIAGE_BOT_DB_ENDPOINT` | SurrealDB endpoint URL | (required) |
+| `TRIAGE_BOT_DB_USERNAME` | SurrealDB username | (required) |
+| `TRIAGE_BOT_DB_PASSWORD` | SurrealDB password | (required) |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_MODEL` | OpenAI model for search agent | `gpt-4.1` |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL` | OpenAI model for assistant agent | `o3-mini` |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE` | Sampling temperature for search agent | `0.0` |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE` | Sampling temperature for assistant agent | `0.7` |
+| `TRIAGE_BOT_OPENAI_MAX_TOKENS` | Maximum output tokens | `65536` |
+| `TRIAGE_BOT_SYSTEM_DIRECTIVE` | Custom system directive for the assistant agent | Default in code |
+| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE` | Custom mention addendum directive for the assistant agent | Default in code |
+| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE` | Custom search agent directive | Default in code |
+| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE` | Custom message search agent directive | Default in code |
+
+Each environment variable can also be specified in a `.hidden/config.toml` file:
+
+```toml
+openai_api_key = "your-api-key"
+slack_app_token = "xapp-..."
+slack_bot_token = "xoxb-..."
+slack_signing_secret = "..."
+db_endpoint = "http://localhost:8000"
+db_username = "root"
+db_password = "root"
+```
+
+Environment variables take precedence over values in the config file.
+
+## Architecture and Extensibility
+
+Triage-bot is designed with modularity and extensibility in mind, built around the following core components:
+
+### Default Implementations
+
+1. **Slack Integration**: The default chat client implementation connects to Slack using socket mode.
+
+2. **SurrealDB Storage**: The default database client uses SurrealDB to store channel configurations, context, and message history.
+
+3. **OpenAI Integration**: The LLM client uses OpenAI's API to generate responses and perform searches.
+
+### Extensibility Through Traits
+
+The application is structured around key traits that make it easy to extend or replace components:
+
+- `GenericChatClient`: Interface for chat platform integration with methods for message handling.
+
+- `GenericDbClient`: Interface for database operations, allowing alternative storage solutions.
+
+- `GenericLlmClient`: Interface for LLM providers with methods for generating different types of responses.
+
+To implement your own service integrations, simply create a new struct that implements the appropriate trait.
 
 ## Testing
 
