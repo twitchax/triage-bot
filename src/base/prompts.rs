@@ -95,6 +95,7 @@ Return **only** one JSON object **without any surrounding code fences**.
 > **Thread timestamp rule:**
 > - For a top-level message, set `thread_ts` = `ts` of that message.
 > - For a reply, use the existing `thread_ts` from the event.
+> **`thread_ts` must never be null.**
 
 ---
 
