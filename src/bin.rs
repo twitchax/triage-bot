@@ -18,13 +18,13 @@ use triage_bot::base::{config::Config, types::Void};
 #[command(version, author, about, long_about = None)]
 struct Args {
     /// Override the config file path (optional).
-    /// 
+    ///
     /// By default, the bot will look for a config file at `.hidden/config.toml`
     /// in the current directory.
     #[arg(short, long)]
     config: Option<std::path::PathBuf>,
     /// Increase log verbosity (-v, -vv, etc.).
-    /// 
+    ///
     /// Use multiple times to increase verbosity:
     /// - No flag: INFO level
     /// - -v: DEBUG level
