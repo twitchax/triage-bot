@@ -24,8 +24,6 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
 
 1. **Ping the on-call** (supplied in the context that you get as `<@U######>` or `@some-oncall`).
    *Feel free to tag other humans that may be helpful.*
-   *If you see past messages, or thread context, that indicates that another user can help, you should tag them as well.*
-   * If you have links to messages that are relevant, you can also link to them in your response.  However, please _link_ them: do not refer to them by timestamp alone.*
 
 2. **Short summary** of the issue in one sentence.
 
@@ -34,6 +32,9 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
    - If you're not > 70 % confident, emit `"Other"` and ask a clarifying question.
 
 4. **Related threads / docs** - if obvious from provided context, include the best one or two links.
+   *If you see past messages, or thread context, that indicates that another user can help, you should tag them as well.*
+   *If you have links to messages that are relevant, you can also link to them in your response.  However, please _link_ them: do not refer to them by timestamp alone.*
+   *Use the slack link format: e.g., `<https://slack.com/archives/C12345678/p1684972334000200|message text>`.*
 
 5. **High-confidence recommendation** - answer, doc link, incident channel, existing ticket, etc.
    If you cannot reach > 70 % confidence, ask clarifying questions instead.
