@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::base::types::{AssistantResponse, Res};
+use crate::base::types::{AssistantResponse, Res, TextOrResponse};
 use crate::base::{
     config::Config,
     types::{AssistantContext, MessageSearchContext, WebSearchContext},
@@ -250,7 +250,10 @@ impl GenericLlmClient for OpenAiLlmClient {
         let response = self.client.responses().create(request).await?;
 
         // Parse the text response
-        let search_results = parse_openai_text_response(&response)?;
+        let search_results = parse_openai_response(&response)?
+            .into_iter()
+            .filter_map(|item| if let TextOrResponse::Text(text) = item { Some(text) } else { None })
+            .collect::<Vec<String>>();
 
         // Combine the search results into a single string
         Ok(search_results.join("\n\n"))
@@ -278,7 +281,10 @@ impl GenericLlmClient for OpenAiLlmClient {
         let response = self.client.responses().create(request).await?;
 
         // Parse the text response
-        let search_terms = parse_openai_text_response(&response)?;
+        let search_terms = parse_openai_response(&response)?
+            .into_iter()
+            .filter_map(|item| if let TextOrResponse::Text(text) = item { Some(text) } else { None })
+            .collect::<Vec<String>>();
 
         // Combine the search terms into a single string
         Ok(search_terms.join(", "))
@@ -327,7 +333,10 @@ impl GenericLlmClient for OpenAiLlmClient {
             let request = request.build()?;
 
             let response = self.client.responses().create(request).await?;
-            let result = parse_openai_structured_response(&response)?;
+            let result = parse_openai_response(&response)?
+                .into_iter()
+                .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
+                .collect::<Vec<AssistantResponse>>();
 
             // TODO: This is where we might want to handle multiple responses.
             // For example, if the LLM returns a "tool call" response for adding context,
@@ -348,49 +357,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
 /// Parse the OpenAI text response (usually only web search available).
 #[instrument(skip_all)]
-pub fn parse_openai_text_response(response: &Response) -> Res<Vec<String>> {
-    let mut result = Vec::new();
-
-    info!("LLM text response has {} outputs.", response.output.len());
-    for output in &response.output {
-        match output {
-            OutputContent::Message(message) => {
-                info!("LLM text response has {} messages.", message.content.len());
-
-                for message_content in &message.content {
-                    match message_content {
-                        Content::OutputText(text) => {
-                            // TODO: Handle annotations if needed.
-                            if text.annotations.is_empty() {
-                                info!("LLM text response has no annotations.");
-                            } else {
-                                info!("LLM text response has {} annotations.", text.annotations.len());
-                            }
-
-                            // Just push the raw text, do not attempt to deserialize.
-                            result.push(text.text.clone());
-                        }
-                        Content::Refusal(reason) => {
-                            return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
-                        }
-                    }
-                }
-            }
-            OutputContent::WebSearchCall(_web_search_call) => {
-                info!("Web search tool called in text response ...");
-            }
-            _ => {
-                warn!("Unknown output in text response: {output:#?}");
-            }
-        }
-    }
-
-    Ok(result)
-}
-
-/// Parse the OpenAI structured response (and, therefore, check for local tool calls).
-#[instrument(skip_all)]
-pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<AssistantResponse>> {
+pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
     let mut result = Vec::new();
 
     info!("LLM response has {} outputs.", response.output.len());
@@ -409,9 +376,11 @@ pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<Assistan
                                 info!("LLM response has {} annotations.", text.annotations.len());
                             }
 
-                            let parsed = serde_json::from_str(&text.text).context(format!("Failed to deserialize LLM response: {text:#?}"))?;
-
-                            result.push(parsed);
+                            if let Ok(response) = serde_json::from_str::<AssistantResponse>(&text.text) {
+                                result.push(TextOrResponse::AssistantResponse(response));
+                            } else {
+                                result.push(TextOrResponse::Text(text.text.clone()));
+                            }
                         }
                         Content::Refusal(reason) => {
                             return Err(anyhow::anyhow!("Request refused: {reason:#?}"));
@@ -427,7 +396,7 @@ pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<Assistan
                     let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
                     let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
 
-                    result.push(AssistantResponse::UpdateChannelDirective { message });
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateChannelDirective { message }));
                 }
                 "update_channel_context" => {
                     info!("Update context tool called ...");
@@ -436,7 +405,7 @@ pub fn parse_openai_structured_response(response: &Response) -> Res<Vec<Assistan
                     let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
                     let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
 
-                    result.push(AssistantResponse::UpdateContext { message });
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateContext { message }));
                 }
                 _ => {
                     warn!("Unknown function call: {function_call:#?}");

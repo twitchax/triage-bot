@@ -48,6 +48,19 @@ pub enum AssistantResponse {
     },
 }
 
+/// An enum representing either raw text, or an LLM response.
+///
+/// This is used to encapsulate the different types of messages that can be sent
+/// by the assistant, allowing for both simple text messages and more complex
+/// responses that may include tool calls or other structured data.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TextOrResponse {
+    /// A raw text message.
+    Text(String),
+    /// A response from the LLM.
+    AssistantResponse(AssistantResponse),
+}
+
 /// Helper struct to handle the context for the web search LLM.
 ///
 /// Contains all necessary information for the search agent to understand
