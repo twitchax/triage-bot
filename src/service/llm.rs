@@ -12,12 +12,11 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::base::types::{AssistantResponse, Res, TextOrResponse};
+use crate::base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs};
 use crate::base::{
     config::Config,
     types::{AssistantContext, MessageSearchContext, WebSearchContext},
 };
-use anyhow::Context;
 use async_openai::{
     Client,
     config::OpenAIConfig,
@@ -27,7 +26,6 @@ use async_openai::{
     },
 };
 use async_trait::async_trait;
-use serde_json::Value;
 use tracing::{info, instrument, warn};
 
 // Traits.
@@ -392,18 +390,14 @@ pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
                 "set_channel_directive" => {
                     info!("Channel directive tool called ...");
 
-                    let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                    let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                    let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+                    let ToolContextFunctionCallArgs { message } = serde_json::from_str(&function_call.arguments)?;
 
                     result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateChannelDirective { message }));
                 }
                 "update_channel_context" => {
                     info!("Update context tool called ...");
 
-                    let arguments: Value = serde_json::from_str(&function_call.arguments)?;
-                    let arguments = arguments.as_object().ok_or(anyhow::anyhow!("Failed to parse function call arguments."))?;
-                    let message = arguments.get("message").ok_or(anyhow::anyhow!("No message in function call."))?.to_string();
+                    let ToolContextFunctionCallArgs { message } = serde_json::from_str(&function_call.arguments)?;
 
                     result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateContext { message }));
                 }

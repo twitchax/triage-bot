@@ -81,7 +81,7 @@ Configuration is handled through environment variables or a config file (`.hidde
 | `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL`       | OpenAI model for assistant agent                          | `o3`            |
 | `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE`    | Sampling temperature for search agent                     | `0.0`           |
 | `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE` | Sampling temperature for assistant agent                  | `0.7`           |
-| `TRIAGE_BOT_OPENAI_MAX_TOKENS`                  | Maximum output tokens                                     | `65536`         |
+| `TRIAGE_BOT_OPENAI_MAX_TOKENS`                  | Maximum output tokens                                     | `16384`         |
 | `TRIAGE_BOT_SYSTEM_DIRECTIVE`                   | Custom system directive for the assistant agent           | Default in code |
 | `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE`         | Custom mention addendum directive for the assistant agent | Default in code |
 | `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE`             | Custom search agent directive                             | Default in code |

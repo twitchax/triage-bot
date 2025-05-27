@@ -30,7 +30,7 @@ fn default_openai_assistant_agent_temperature() -> f32 {
 
 /// Default max output tokens for OpenAI model
 fn default_openai_max_tokens() -> u32 {
-    65536
+    16384
 }
 
 /// Default system directive for the assistant agent.

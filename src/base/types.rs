@@ -61,6 +61,13 @@ pub enum TextOrResponse {
     AssistantResponse(AssistantResponse),
 }
 
+/// Arguments for the direct / context update function tools.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolContextFunctionCallArgs {
+    /// The message that represents what the bot "thinks about" the directive / context update.
+    pub message: String,
+}
+
 /// Helper struct to handle the context for the web search LLM.
 ///
 /// Contains all necessary information for the search agent to understand
