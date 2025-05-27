@@ -143,8 +143,6 @@ async fn compile_contexts(
     llm: &LlmClient,
     _chat: &ChatClient,
 ) -> Res<AssistantContext> {
-    let mut tasks = vec![];
-
     // Execute the search agent to gather relevant information.
 
     let llm_clone = llm.clone();
@@ -156,8 +154,7 @@ async fn compile_contexts(
         thread_context: thread_context.clone(),
     };
 
-    let search_agent_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(&web_search_context).await });
-    tasks.push(search_agent_task);
+    let web_search_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(&web_search_context).await });
 
     // Execute the message search agent to identify relevant messages from the channel history.
 
@@ -183,26 +180,22 @@ async fn compile_contexts(
             "No relevant messages found.".to_string()
         };
 
-        Ok(messages)
+        Result::<_, anyhow::Error>::Ok(messages)
     });
-    tasks.push(message_search_task);
 
     // Wait for all tasks to complete.
 
-    let results = futures::future::join_all(tasks)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+    let (web_search_result, message_search_result) = futures::future::join(web_search_task, message_search_task).await;
+    let web_search_result = web_search_result??;
+    let message_search_result = message_search_result??;
 
     // Prepare results.
 
     let agent_responses = AssistantContext {
         user_message,
         bot_user_id,
-        web_search_context: results[0].clone(),
-        message_search_context: results[1].clone(),
+        web_search_context: web_search_result,
+        message_search_context: message_search_result,
         channel_id,
         thread_ts,
         channel_directive,
