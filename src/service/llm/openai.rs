@@ -8,6 +8,7 @@
 //! for different LLM providers, with a default implementation for OpenAI.
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use crate::base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs};
 use crate::base::{
@@ -26,6 +27,7 @@ use async_openai::{
     },
 };
 use async_trait::async_trait;
+use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 use super::{GenericLlmClient, LlmClient};
@@ -176,6 +178,49 @@ impl OpenAiLlmClient {
             ),
         ]))
     }
+
+    /// Helper function to make OpenAI API calls with retry logic and timeout handling.
+    async fn call_openai_api(&self, request_builder: CreateResponseArgs) -> Res<Response> {
+        const MAX_RETRIES: u32 = 3;
+        const TIMEOUT: u64 = 120; // OpenAI can be slow, especially with reasoning models
+        const RETRY_DELAY_MS: u64 = 1000;
+
+        let mut retries = 0;
+
+        loop {
+            let request = request_builder.build()?;
+            let result = timeout(Duration::from_secs(TIMEOUT), self.client.responses().create(request)).await;
+
+            match result {
+                Ok(Ok(response)) => {
+                    info!("OpenAI API call succeeded after {} attempts", retries + 1);
+                    return Ok(response);
+                }
+                Ok(Err(err)) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(anyhow::anyhow!("OpenAI API call failed after {MAX_RETRIES} retries: {err}"));
+                    }
+                    retries += 1;
+                    warn!("OpenAI API call failed, retrying {retries}/{MAX_RETRIES}: {err}");
+
+                    // Add exponential backoff for retries
+                    let delay = Duration::from_millis(RETRY_DELAY_MS * 2_u64.pow(retries - 1));
+                    tokio::time::sleep(delay).await;
+                }
+                Err(_) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(anyhow::anyhow!("OpenAI API call timed out after {MAX_RETRIES} attempts"));
+                    }
+                    retries += 1;
+                    warn!("OpenAI API call timed out, retrying {retries}/{MAX_RETRIES}");
+
+                    // Add exponential backoff for timeouts too
+                    let delay = Duration::from_millis(RETRY_DELAY_MS * 2_u64.pow(retries - 1));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -193,7 +238,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // Create the request.
         let mut request = CreateResponseArgs::default();
-        let request = request
+        request
             .instructions(self.config.search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .model(&self.config.openai_search_agent_model)
@@ -212,10 +257,8 @@ impl GenericLlmClient for OpenAiLlmClient {
             request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
         }
 
-        let request = request.build()?;
-
         // Execute the search request
-        let response = self.client.responses().create(request).await?;
+        let response = self.call_openai_api(request).await?;
 
         // Parse the text response
         let search_results = parse_openai_response(&response)?
@@ -237,7 +280,7 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         // Create the request.
         let mut request = CreateResponseArgs::default();
-        let request = request
+        request
             .instructions(self.config.message_search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
             .model(&self.config.openai_search_agent_model)
@@ -255,10 +298,8 @@ impl GenericLlmClient for OpenAiLlmClient {
             request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
         }
 
-        let request = request.build()?;
-
         // Execute the message search request
-        let response = self.client.responses().create(request).await?;
+        let response = self.call_openai_api(request).await?;
 
         // Parse the text response
         let search_terms = parse_openai_response(&response)?
@@ -274,7 +315,7 @@ impl GenericLlmClient for OpenAiLlmClient {
     #[instrument(skip_all)]
     async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>> {
         // Build the input with search results included
-        let mut input = self.build_assistant_agent_input(context)?;
+        let input = self.build_assistant_agent_input(context)?;
         let mut previous_response_id = None;
 
         // Prepare allowed tools.
@@ -303,7 +344,7 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .instructions(self.config.assistant_agent_system_directive.clone())
                 .tools(tools.clone())
                 .text(text_config.clone())
-                .input(input);
+                .input(input.clone());
 
             // Add the temperature for the non-reasoning models.
             if self.config.openai_assistant_agent_model.starts_with("gpt") {
@@ -321,11 +362,8 @@ impl GenericLlmClient for OpenAiLlmClient {
                 request.previous_response_id(previous_response_id);
             }
 
-            // Build the request.
-            let request = request.build()?;
-
             // Send the request, and parse.
-            let response = self.client.responses().create(request).await?;
+            let response = self.call_openai_api(request).await?;
             let result = parse_openai_response(&response)?
                 .into_iter()
                 .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
@@ -334,7 +372,10 @@ impl GenericLlmClient for OpenAiLlmClient {
             dbg!(&response);
 
             // Update the response id (in the case that we may loop).
-            previous_response_id = Some(response.id);
+            #[allow(unused_assignments)]
+            {
+                previous_response_id = Some(response.id);
+            }
 
             // TODO: This is where we might want to handle multiple responses.
             // For example, if the LLM returns a "tool call" response for adding context,
