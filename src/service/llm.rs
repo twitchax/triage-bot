@@ -20,9 +20,12 @@ use crate::base::{
 use async_openai::{
     Client,
     config::OpenAIConfig,
-    types::responses::{
-        Content, CreateResponseArgs, FunctionArgs, Input, InputItem, InputMessageArgs, OutputContent, Response, ResponseFormatJsonSchema, Role, TextConfig, TextResponseFormat, ToolDefinition,
-        WebSearchPreviewArgs,
+    types::{
+        ReasoningEffort,
+        responses::{
+            Content, CreateResponseArgs, FunctionArgs, Input, InputItem, InputMessageArgs, OutputContent, ReasoningConfigArgs, Response, ResponseFormatJsonSchema, Role, TextConfig,
+            TextResponseFormat, ToolDefinition, WebSearchPreviewArgs,
+        },
     },
 };
 use async_trait::async_trait;
@@ -233,16 +236,28 @@ impl GenericLlmClient for OpenAiLlmClient {
         // Text config for the search response
         let text_config = TextConfig { format: TextResponseFormat::Text };
 
-        // Create the request
-        let request = CreateResponseArgs::default()
+        // Create the request.
+        let mut request = CreateResponseArgs::default();
+        let request = request
             .instructions(self.config.search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
-            .temperature(self.config.openai_search_agent_temperature)
             .model(&self.config.openai_search_agent_model)
             .tools(search_tools)
             .text(text_config)
-            .input(input)
-            .build()?;
+            .input(input);
+
+        // Add the temperature for the non-reasoning models.
+        if self.config.openai_search_agent_model.starts_with("gpt") {
+            request.temperature(self.config.openai_search_agent_temperature);
+        }
+
+        // Add the reasoning effort for `o` models.
+        if self.config.openai_search_agent_model.starts_with("o") {
+            let reasoning_effort = parse_openai_reasoning_effort(&self.config.openai_search_agent_reasoning_effort)?;
+            request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
+        }
+
+        let request = request.build()?;
 
         // Execute the search request
         let response = self.client.responses().create(request).await?;
@@ -265,15 +280,27 @@ impl GenericLlmClient for OpenAiLlmClient {
         // Text config for the message search response
         let text_config = TextConfig { format: TextResponseFormat::Text };
 
-        // Create the request
-        let request = CreateResponseArgs::default()
+        // Create the request.
+        let mut request = CreateResponseArgs::default();
+        let request = request
             .instructions(self.config.message_search_agent_system_directive.clone())
             .max_output_tokens(self.config.openai_max_tokens)
-            .temperature(self.config.openai_search_agent_temperature) // Reuse the search agent temperature
-            .model(&self.config.openai_search_agent_model) // Reuse the search agent model
+            .model(&self.config.openai_search_agent_model)
             .text(text_config)
-            .input(input)
-            .build()?;
+            .input(input);
+
+        // Add the temperature for the non-reasoning models.
+        if self.config.openai_search_agent_model.starts_with("gpt") {
+            request.temperature(self.config.openai_search_agent_temperature);
+        }
+
+        // Add the reasoning effort for `o` models.
+        if self.config.openai_search_agent_model.starts_with("o") {
+            let reasoning_effort = parse_openai_reasoning_effort(&self.config.openai_search_agent_reasoning_effort)?;
+            request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
+        }
+
+        let request = request.build()?;
 
         // Execute the message search request
         let response = self.client.responses().create(request).await?;
@@ -292,7 +319,8 @@ impl GenericLlmClient for OpenAiLlmClient {
     #[instrument(skip_all)]
     async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>> {
         // Build the input with search results included
-        let input = self.build_assistant_agent_input(context)?;
+        let mut input = self.build_assistant_agent_input(context)?;
+        let mut previous_response_id = None;
 
         // Prepare allowed tools.
 
@@ -322,19 +350,36 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .text(text_config.clone())
                 .input(input);
 
-            if self.config.openai_assistant_agent_model == "gpt-4.1" {
+            // Add the temperature for the non-reasoning models.
+            if self.config.openai_assistant_agent_model.starts_with("gpt") {
                 request.temperature(self.config.openai_assistant_agent_temperature);
             }
 
-            // TODO: Add reasoning effort for `o` models.
+            // Add the reasoning effort for `o` models.
+            if self.config.openai_assistant_agent_model.starts_with("o") {
+                let reasoning_effort = parse_openai_reasoning_effort(&self.config.openai_assistant_agent_reasoning_effort)?;
+                request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
+            }
 
+            // Add the previous request id, if it has been set (it may have been set in a previous iteration).
+            if let Some(previous_response_id) = previous_response_id {
+                request.previous_response_id(previous_response_id);
+            }
+
+            // Build the request.
             let request = request.build()?;
 
+            // Send the request, and parse.
             let response = self.client.responses().create(request).await?;
             let result = parse_openai_response(&response)?
                 .into_iter()
                 .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
                 .collect::<Vec<AssistantResponse>>();
+
+            dbg!(&response);
+
+            // Update the response id (in the case that we may loop).
+            previous_response_id = Some(response.id);
 
             // TODO: This is where we might want to handle multiple responses.
             // For example, if the LLM returns a "tool call" response for adding context,
@@ -345,7 +390,7 @@ impl GenericLlmClient for OpenAiLlmClient {
             // that can handle cases where the LLM needs more information to proceed.  We then ping the user, see
             // if we get anything back, and then re-run the request with the new context (preserving the request id).
 
-            // This may change, but for now, always break after one message.
+            // In the "standard" case, break.
             break result;
         };
 
@@ -496,6 +541,16 @@ fn get_openai_text_config() -> &'static TextConfig {
             strict: Some(true),
         }),
     })
+}
+
+/// Convert a string reasoning effort to ReasoningEffort enum.
+fn parse_openai_reasoning_effort(effort: &str) -> Res<ReasoningEffort> {
+    match effort.to_lowercase().as_str() {
+        "low" => Ok(ReasoningEffort::Low),
+        "medium" => Ok(ReasoningEffort::Medium),
+        "high" => Ok(ReasoningEffort::High),
+        _ => Err(crate::base::types::Err::msg(format!("Invalid reasoning effort: {effort}. Must be one of: low, medium, high"))),
+    }
 }
 
 // Tests.

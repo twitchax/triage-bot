@@ -28,6 +28,16 @@ fn default_openai_assistant_agent_temperature() -> f32 {
     0.7
 }
 
+/// Default reasoning effort for OpenAI assistant agent
+fn default_openai_assistant_agent_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
+/// Default reasoning effort for OpenAI search agent
+fn default_openai_search_agent_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
 /// Default max output tokens for OpenAI model
 fn default_openai_max_tokens() -> u32 {
     16384
@@ -94,11 +104,19 @@ pub struct ConfigInner {
     /// while lower values like 0.2 make it more focused and deterministic.
     #[serde(default = "default_openai_search_agent_temperature")]
     pub openai_search_agent_temperature: f32,
+    /// Reasoning effort to use for OpenAI search agent model (`OPENAI_SEARCH_AGENT_REASONING_EFFORT`).
+    /// Valid values are "low", "medium", and "high". Only applies to reasoning models (o-series).
+    #[serde(default = "default_openai_search_agent_reasoning_effort")]
+    pub openai_search_agent_reasoning_effort: String,
     /// Sampling temperature to use for OpenAI assistant agent model (`OPENAI_ASSISTANT_AGENT_TEMPERATURE`).
     /// Value between 0 and 2. Higher values like 0.8 make output more random,
     /// while lower values like 0.2 make it more focused and deterministic.
     #[serde(default = "default_openai_assistant_agent_temperature")]
     pub openai_assistant_agent_temperature: f32,
+    /// Reasoning effort to use for OpenAI assistant agent model (`OPENAI_ASSISTANT_AGENT_REASONING_EFFORT`).
+    /// Valid values are "low", "medium", and "high". Only applies to reasoning models (o-series).
+    #[serde(default = "default_openai_assistant_agent_reasoning_effort")]
+    pub openai_assistant_agent_reasoning_effort: String,
     /// Max output tokens for OpenAI model (`OPENAI_MAX_TOKENS`).
     /// Maximum number of tokens that can be generated in the response.
     #[serde(default = "default_openai_max_tokens")]
@@ -141,6 +159,15 @@ impl Config {
 
         if result.openai_max_tokens < 1 || result.openai_max_tokens > 128000 {
             return Err(anyhow::anyhow!("OpenAI max tokens must be between 1 and 128000."));
+        }
+
+        // Validate reasoning effort
+        if !["low", "medium", "high"].contains(&result.openai_assistant_agent_reasoning_effort.as_str()) {
+            return Err(anyhow::anyhow!("OpenAI assistant agent reasoning effort must be one of: low, medium, high."));
+        }
+
+        if !["low", "medium", "high"].contains(&result.openai_search_agent_reasoning_effort.as_str()) {
+            return Err(anyhow::anyhow!("OpenAI search agent reasoning effort must be one of: low, medium, high."));
         }
 
         Ok(result)

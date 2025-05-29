@@ -48,6 +48,13 @@ pub enum AssistantResponse {
     },
 }
 
+impl AssistantResponse {
+    /// Check if the response is a tool call.
+    pub fn is_tool_call(&self) -> bool {
+        matches!(self, AssistantResponse::UpdateChannelDirective { .. } | AssistantResponse::UpdateContext { .. })
+    }
+}
+
 /// An enum representing either raw text, or an LLM response.
 ///
 /// This is used to encapsulate the different types of messages that can be sent
