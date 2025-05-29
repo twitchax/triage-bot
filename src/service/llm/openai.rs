@@ -76,14 +76,14 @@ impl OpenAiLlmClient {
                 
                 // For now, return a placeholder result for web search
                 // In a more complete implementation, this would execute the actual web search
-                Ok(Some(format!("Web search for \"{}\" completed. This feature is under development and would return actual search results.", query)))
+                Ok(Some(format!("Web search for \"{query}\" completed. This feature is under development and would return actual search results.")))
             }
             AssistantResponse::RequestMessageSearch { query } => {
                 info!("Tool call: Request message search - {}", query);
                 
                 // For now, return a placeholder result for message search
                 // In a more complete implementation, this would search the channel history
-                Ok(Some(format!("Message search for \"{}\" completed. This feature is under development and would return relevant channel messages.", query)))
+                Ok(Some(format!("Message search for \"{query}\" completed. This feature is under development and would return relevant channel messages.")))
             }
             _ => {
                 info!("Tool call: No follow-up message needed for {:?}", tool_call);
@@ -100,7 +100,7 @@ impl OpenAiLlmClient {
                 let tool_result_message = InputItem::Message(
                     InputMessageArgs::default()
                         .role(Role::Developer)
-                        .content(format!("Tool execution result: {}", result_message))
+                        .content(format!("Tool execution result: {result_message}"))
                         .build()?,
                 );
                 items.push(tool_result_message);
