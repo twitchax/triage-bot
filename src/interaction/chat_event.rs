@@ -118,6 +118,16 @@ where
                 let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
                 chat.send_message(&channel_id, &thread_ts, &message).await?;
             }
+            AssistantResponse::RequestWebSearch { query: _ } => {
+                // Web search requests are handled internally within the LLM loop
+                // They should not reach this level as they are processed during the conversation
+                warn!("Unexpected web search request at chat event level - this should have been handled in LLM loop");
+            }
+            AssistantResponse::RequestMessageSearch { query: _ } => {
+                // Message search requests are handled internally within the LLM loop
+                // They should not reach this level as they are processed during the conversation
+                warn!("Unexpected message search request at chat event level - this should have been handled in LLM loop");
+            }
         }
     }
 

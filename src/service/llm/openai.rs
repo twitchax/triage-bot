@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use crate::base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs};
+use crate::base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs, ToolSearchFunctionCallArgs};
 use crate::base::{
     config::Config,
     types::{AssistantContext, MessageSearchContext, WebSearchContext},
@@ -61,7 +61,7 @@ impl OpenAiLlmClient {
     }
 
     /// Handle a tool call and return a message to add to the conversation
-    async fn handle_tool_call(&self, tool_call: &AssistantResponse) -> Res<Option<String>> {
+    async fn handle_tool_call(&self, tool_call: &AssistantResponse, _context: &AssistantContext) -> Res<Option<String>> {
         match tool_call {
             AssistantResponse::UpdateChannelDirective { message } => {
                 info!("Tool call: Update channel directive - {}", message);
@@ -70,6 +70,20 @@ impl OpenAiLlmClient {
             AssistantResponse::UpdateContext { message } => {
                 info!("Tool call: Update context - {}", message);
                 Ok(Some("Context has been updated successfully.".to_string()))
+            }
+            AssistantResponse::RequestWebSearch { query } => {
+                info!("Tool call: Request web search - {}", query);
+                
+                // For now, return a placeholder result for web search
+                // In a more complete implementation, this would execute the actual web search
+                Ok(Some(format!("Web search for \"{}\" completed. This feature is under development and would return actual search results.", query)))
+            }
+            AssistantResponse::RequestMessageSearch { query } => {
+                info!("Tool call: Request message search - {}", query);
+                
+                // For now, return a placeholder result for message search
+                // In a more complete implementation, this would search the channel history
+                Ok(Some(format!("Message search for \"{}\" completed. This feature is under development and would return relevant channel messages.", query)))
             }
             _ => {
                 info!("Tool call: No follow-up message needed for {:?}", tool_call);
@@ -389,7 +403,7 @@ impl GenericLlmClient for OpenAiLlmClient {
                             info!("Received tool call: {:?}", assistant_response);
                             
                             // Handle the tool call and provide feedback to the conversation
-                            let tool_result = self.handle_tool_call(&assistant_response).await?;
+                            let tool_result = self.handle_tool_call(&assistant_response, context).await?;
                             if let Some(result_message) = tool_result {
                                 // Add the tool result as a new message in the conversation
                                 input = self.extend_input_with_tool_result(input, result_message)?;
@@ -479,6 +493,20 @@ pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
 
                     result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateContext { message }));
                 }
+                "request_web_search" => {
+                    info!("Web search tool called ...");
+
+                    let ToolSearchFunctionCallArgs { query } = serde_json::from_str(&function_call.arguments)?;
+
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::RequestWebSearch { query }));
+                }
+                "request_message_search" => {
+                    info!("Message search tool called ...");
+
+                    let ToolSearchFunctionCallArgs { query } = serde_json::from_str(&function_call.arguments)?;
+
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::RequestMessageSearch { query }));
+                }
                 _ => {
                     warn!("Unknown function call: {function_call:#?}");
                     return Err(anyhow::anyhow!("Unknown function call."));
@@ -533,6 +561,32 @@ fn get_openai_assistant_tools() -> &'static Vec<ToolDefinition> {
                 }))
                 .build().unwrap()
             ),
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("request_web_search")
+                .description("Request a web search to gather additional information to help answer the user's question. Use this when you need current information or details not available in your training data.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query to use for finding relevant information on the web."},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("request_message_search")
+                .description("Request a search through the channel's message history to find relevant past discussions. Use this when the user's question might relate to previous conversations or issues.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search terms to use for finding relevant messages in the channel history."},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
         ]
     })
 }
@@ -541,7 +595,36 @@ fn get_openai_assistant_tools() -> &'static Vec<ToolDefinition> {
 ///
 /// This is used when we don't want the assistant to call context updating tools.
 fn get_openai_restricted_tools() -> &'static Vec<ToolDefinition> {
-    OPENAI_RESTRICTED_TOOLS.get_or_init(Vec::new)
+    OPENAI_RESTRICTED_TOOLS.get_or_init(|| {
+        vec![
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("request_web_search")
+                .description("Request a web search to gather additional information to help answer the user's question. Use this when you need current information or details not available in your training data.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query to use for finding relevant information on the web."},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
+            ToolDefinition::Function(FunctionArgs::default()
+                .name("request_message_search")
+                .description("Request a search through the channel's message history to find relevant past discussions. Use this when the user's question might relate to previous conversations or issues.")
+                .parameters(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search terms to use for finding relevant messages in the channel history."},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }))
+                .build().unwrap()
+            ),
+        ]
+    })
 }
 
 /// Get the OpenAI search tools.
@@ -762,5 +845,43 @@ mod tests {
         // For a "remember" message, we expect either a tool call or a response (depending on current implementation)
         assert!(has_tool_call || responses.iter().any(|r| matches!(r, AssistantResponse::ReplyToThread { .. })), 
                "Should either have a tool call or a reply response for remember requests");
+    }
+
+    #[tokio::test]
+    async fn test_assistant_loop_with_search_requests() {
+        fail_if_no_api_key();
+
+        let config = create_test_config();
+        let client = LlmClient::openai(&config);
+
+        // Create a context that might trigger search requests
+        let context = create_test_assistant_context("@TriageBot What is the latest information about Rust async/await best practices?");
+
+        let responses = client.get_assistant_agent_response(&context).await.unwrap();
+
+        // Should contain at least one response
+        assert!(!responses.is_empty(), "Should return at least one response");
+        
+        // Check what types of responses we got
+        let has_search_tool = responses.iter().any(|r| matches!(r, 
+            AssistantResponse::RequestWebSearch { .. } | 
+            AssistantResponse::RequestMessageSearch { .. }
+        ));
+        let has_reply = responses.iter().any(|r| matches!(r, AssistantResponse::ReplyToThread { .. }));
+        
+        // Should either have search tools called or a direct reply
+        assert!(has_search_tool || has_reply, "Should either call search tools or provide a direct reply");
+        
+        // All responses should be either tool calls or final responses, not raw text
+        for response in &responses {
+            assert!(matches!(response, 
+                AssistantResponse::NoAction |
+                AssistantResponse::ReplyToThread { .. } |
+                AssistantResponse::UpdateChannelDirective { .. } |
+                AssistantResponse::UpdateContext { .. } |
+                AssistantResponse::RequestWebSearch { .. } |
+                AssistantResponse::RequestMessageSearch { .. }
+            ), "All responses should be structured AssistantResponse variants");
+        }
     }
 }

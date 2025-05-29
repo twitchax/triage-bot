@@ -46,12 +46,24 @@ pub enum AssistantResponse {
     UpdateContext {
         message: String,
     },
+    RequestWebSearch {
+        query: String,
+    },
+    RequestMessageSearch {
+        query: String,
+    },
 }
 
 impl AssistantResponse {
     /// Check if the response is a tool call.
     pub fn is_tool_call(&self) -> bool {
-        matches!(self, AssistantResponse::UpdateChannelDirective { .. } | AssistantResponse::UpdateContext { .. })
+        matches!(
+            self, 
+            AssistantResponse::UpdateChannelDirective { .. } | 
+            AssistantResponse::UpdateContext { .. } |
+            AssistantResponse::RequestWebSearch { .. } |
+            AssistantResponse::RequestMessageSearch { .. }
+        )
     }
 }
 
@@ -73,6 +85,13 @@ pub enum TextOrResponse {
 pub struct ToolContextFunctionCallArgs {
     /// The message that represents what the bot "thinks about" the directive / context update.
     pub message: String,
+}
+
+/// Arguments for search request tools.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolSearchFunctionCallArgs {
+    /// The search query to execute.
+    pub query: String,
 }
 
 /// Helper struct to handle the context for the web search LLM.
