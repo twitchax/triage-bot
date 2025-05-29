@@ -46,6 +46,7 @@ jobs:
     needs: test
     name: Build Linux
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -68,6 +69,7 @@ jobs:
     needs: test
     name: Build Windows
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - name: Install windows dependencies
@@ -89,6 +91,7 @@ jobs:
     needs: test
     name: Build MacOS
     runs-on: macos-14
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
