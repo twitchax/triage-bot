@@ -14,6 +14,7 @@ use crate::{
         types::{Res, Void},
     },
     interaction,
+    service::{db::DbClient, llm::LlmClient},
 };
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
@@ -23,51 +24,26 @@ use tracing::{info, instrument, warn};
 
 use std::{ops::Deref, sync::Arc};
 
-use super::{db::DbClient, llm::LlmClient};
+use super::{ChatClient, GenericChatClient};
 
 // Type aliases.
 
 type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
-//type Listener = SlackClientSocketModeListener<SlackClientHyperConnector<HttpsConnector<HttpConnector>>>;
 
-// Traits.
+// Extra methods on `ChatClient` applied by the slack implementation.
 
-/// Generic "chat" trait that clients must implement.
-///
-/// This trait defines the core functionality for interacting with chat platforms
-/// like Slack. Implementing this trait allows different chat services to be used
-/// with the triage-bot.
-#[async_trait]
-pub trait GenericChatClient: Send + Sync + 'static {
-    /// Get the bot user ID.
-    ///
-    /// Returns the unique identifier for the bot in the chat platform,
-    /// which is used to detect when the bot is mentioned.
-    fn bot_user_id(&self) -> &str;
+impl ChatClient {
+    /// Creates a new Slack chat client.
+    pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
+        let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
+        Ok(Self { inner: Arc::new(client) })
+    }
+}
 
-    /// Start the chat client listener.
-    ///
-    /// This sets up event listeners for the chat platform and begins processing
-    /// incoming messages and events.
-    async fn start(&self) -> Void;
-
-    /// Send a message to a channel thread.
-    ///
-    /// Used to post responses in threads, allowing the bot to reply to user
-    /// messages in a structured way.
-    async fn send_message(&self, channel_id: &str, thread_ts: &str, text: &str) -> Void;
-
-    /// React to a message with an emoji.
-    ///
-    /// Adds an emoji reaction to a message, which can be used to indicate
-    /// the type of issue or state of a request.
-    async fn react_to_message(&self, channel_id: &str, thread_ts: &str, emoji: &str) -> Void;
-
-    /// Get the entirety of the thread context.
-    ///
-    /// Retrieves all messages in a thread, which provides context for
-    /// generating more relevant responses.
-    async fn get_thread_context(&self, channel_id: &str, thread_ts: &str) -> Res<String>;
+impl From<SlackChatClient> for ChatClient {
+    fn from(client: SlackChatClient) -> Self {
+        Self { inner: Arc::new(client) }
+    }
 }
 
 // Structs.
@@ -79,43 +55,6 @@ struct SlackUserState {
     chat_client: ChatClient,
     bot_user_id: String,
 }
-
-/// Slack client for the application.
-///
-/// It is designed to be trivially cloneable, allowing it to be passed around
-/// without the need for `Arc` or `Mutex`.
-#[derive(Clone)]
-pub struct ChatClient {
-    inner: Arc<dyn GenericChatClient>,
-}
-
-impl Deref for ChatClient {
-    type Target = dyn GenericChatClient;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.inner
-    }
-}
-
-impl ChatClient {
-    /// Creates a new Slack chat client.
-    pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
-        let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
-        Ok(Self { inner: Arc::new(client) })
-    }
-
-    pub fn new(inner: Arc<dyn GenericChatClient>) -> Self {
-        Self { inner }
-    }
-}
-
-impl From<SlackChatClient> for ChatClient {
-    fn from(client: SlackChatClient) -> Self {
-        Self { inner: Arc::new(client) }
-    }
-}
-
-// Specific implementations.
 
 /// Slack client implementation.
 #[derive(Clone)]

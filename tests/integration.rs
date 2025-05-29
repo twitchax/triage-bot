@@ -17,7 +17,7 @@ use triage_bot::{
     runtime::Runtime,
     service::{
         chat::{ChatClient, GenericChatClient},
-        db::{DbClient, SurrealDbClient},
+        db::{DbClient, surreal::SurrealDbClient},
         llm::LlmClient,
     },
 };

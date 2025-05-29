@@ -7,7 +7,7 @@ use crate::{
     base::types::{AssistantClassification, AssistantContext, AssistantResponse, MessageSearchContext, Res, Void, WebSearchContext},
     service::{
         chat::ChatClient,
-        db::{DbClient, SurrealLlmContext},
+        db::{Channel, DbClient, LlmContext, Message},
         llm::LlmClient,
     },
 };
@@ -19,9 +19,12 @@ use crate::{
 /// It first retrieves the channel information and context from the database, then generates a response using the LLM,
 /// and finally takes action based on the response.
 #[instrument(skip_all)]
-pub fn handle_chat_event<E>(event: E, channel_id: String, thread_ts: String, db: DbClient, llm: LlmClient, chat: ChatClient)
+pub fn handle_chat_event<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: DbClient<L, C, M>, llm: LlmClient, chat: ChatClient)
 where
     E: Serialize + Send + 'static,
+    L: LlmContext,
+    C: Channel,
+    M: Message,
 {
     tokio::spawn(async move {
         // Process the event.
@@ -36,16 +39,19 @@ where
 
 /// Internal function to handle the chat event.
 #[instrument(skip_all)]
-async fn handle_chat_event_internal<E>(event: E, channel_id: String, thread_ts: String, db: &DbClient, llm: &LlmClient, chat: &ChatClient) -> Void
+async fn handle_chat_event_internal<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: &DbClient<L, C, M>, llm: &LlmClient, chat: &ChatClient) -> Void
 where
     E: Serialize,
+    L: LlmContext,
+    C: Channel,
+    M: Message,
 {
     let user_message = serde_json::to_string(&event).unwrap();
 
     // First, get the channel info from the database.
 
     let channel = db.get_or_create_channel(&channel_id).await?;
-    let channel_directive = serde_json::to_string(&channel.channel_directive)?;
+    let channel_directive = serde_json::to_string(&channel.channel_directive())?;
 
     // Next, get the other context from the database.
 
@@ -86,22 +92,14 @@ where
             AssistantResponse::UpdateChannelDirective { message } => {
                 info!("Updating channel directive ...");
 
-                let directive = SurrealLlmContext {
-                    id: None,
-                    user_message: serde_json::to_value(&event)?,
-                    your_notes: message,
-                };
+                let directive = L::new(serde_json::to_value(&event)?, message);
 
                 db.update_channel_directive(&channel_id, &directive).await?;
             }
             AssistantResponse::UpdateContext { message } => {
                 info!("Updating context ...");
 
-                let context = SurrealLlmContext {
-                    id: None,
-                    user_message: serde_json::to_value(&event)?,
-                    your_notes: message,
-                };
+                let context = L::new(serde_json::to_value(&event)?, message);
 
                 db.add_channel_context(&channel_id, &context).await?;
             }
@@ -131,7 +129,7 @@ where
 /// Builds a single context for the assistant agent to use.
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-async fn compile_contexts(
+async fn compile_contexts<L, C, M>(
     user_message: String,
     bot_user_id: String,
     channel_id: String,
@@ -139,10 +137,15 @@ async fn compile_contexts(
     channel_directive: String,
     channel_context: String,
     thread_context: String,
-    db: &DbClient,
+    db: &DbClient<L, C, M>,
     llm: &LlmClient,
     _chat: &ChatClient,
-) -> Res<AssistantContext> {
+) -> Res<AssistantContext>
+where
+    L: LlmContext,
+    C: Channel,
+    M: Message,
+{
     // Execute the search agent to gather relevant information.
 
     let llm_clone = llm.clone();
