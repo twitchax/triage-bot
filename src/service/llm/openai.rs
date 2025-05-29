@@ -60,6 +60,45 @@ impl OpenAiLlmClient {
         }
     }
 
+    /// Handle a tool call and return a message to add to the conversation
+    async fn handle_tool_call(&self, tool_call: &AssistantResponse) -> Res<Option<String>> {
+        match tool_call {
+            AssistantResponse::UpdateChannelDirective { message } => {
+                info!("Tool call: Update channel directive - {}", message);
+                Ok(Some("Channel directive has been updated successfully.".to_string()))
+            }
+            AssistantResponse::UpdateContext { message } => {
+                info!("Tool call: Update context - {}", message);
+                Ok(Some("Context has been updated successfully.".to_string()))
+            }
+            _ => {
+                info!("Tool call: No follow-up message needed for {:?}", tool_call);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Extend the conversation input with a tool result message
+    fn extend_input_with_tool_result(&self, mut input: Input, result_message: String) -> Res<Input> {
+        match input {
+            Input::Items(ref mut items) => {
+                // Add the tool result as a new developer message
+                let tool_result_message = InputItem::Message(
+                    InputMessageArgs::default()
+                        .role(Role::Developer)
+                        .content(format!("Tool execution result: {}", result_message))
+                        .build()?,
+                );
+                items.push(tool_result_message);
+                Ok(Input::Items(items.clone()))
+            }
+            _ => {
+                warn!("Unexpected input format, cannot extend with tool result");
+                Ok(input)
+            }
+        }
+    }
+
     /// Build the web search input.
     #[instrument(name = "OpenAiLlmClient::build_web_search_input", skip_all)]
     fn build_web_search_input(&self, context: &WebSearchContext) -> Res<Input> {
@@ -276,6 +315,8 @@ impl GenericLlmClient for OpenAiLlmClient {
         // Build the input with search results included
         let mut input = self.build_assistant_agent_input(context)?;
         let mut previous_response_id = None;
+        let mut conversation_complete = false;
+        let mut accumulated_responses = Vec::new();
 
         // Prepare allowed tools.
 
@@ -291,10 +332,14 @@ impl GenericLlmClient for OpenAiLlmClient {
         let text_config = get_openai_text_config();
 
         // Loop over requests until we get a "final" response.
-        // For example, the LLM may give a "context needed" or "search needed" response.
+        // This allows for multiple back-and-forth interactions between tool calls and responses.
+        const MAX_ITERATIONS: usize = 10; // Prevent infinite loops
+        let mut iteration = 0;
 
-        #[allow(clippy::never_loop)]
-        let result = loop {
+        while !conversation_complete && iteration < MAX_ITERATIONS {
+            iteration += 1;
+            info!("Assistant loop iteration {}", iteration);
+
             let mut request = CreateResponseArgs::default();
 
             request
@@ -303,7 +348,7 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .instructions(self.config.assistant_agent_system_directive.clone())
                 .tools(tools.clone())
                 .text(text_config.clone())
-                .input(input);
+                .input(input.clone());
 
             // Add the temperature for the non-reasoning models.
             if self.config.openai_assistant_agent_model.starts_with("gpt") {
@@ -316,9 +361,9 @@ impl GenericLlmClient for OpenAiLlmClient {
                 request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
             }
 
-            // Add the previous request id, if it has been set (it may have been set in a previous iteration).
-            if let Some(previous_response_id) = previous_response_id {
-                request.previous_response_id(previous_response_id);
+            // Add the previous request id to continue the conversation.
+            if let Some(prev_id) = previous_response_id {
+                request.previous_response_id(prev_id);
             }
 
             // Build the request.
@@ -326,31 +371,64 @@ impl GenericLlmClient for OpenAiLlmClient {
 
             // Send the request, and parse.
             let response = self.client.responses().create(request).await?;
-            let result = parse_openai_response(&response)?
-                .into_iter()
-                .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
-                .collect::<Vec<AssistantResponse>>();
+            let parsed_responses = parse_openai_response(&response)?;
 
-            dbg!(&response);
+            info!("Assistant received {} parsed responses", parsed_responses.len());
 
-            // Update the response id (in the case that we may loop).
-            previous_response_id = Some(response.id);
+            // Update the response id for potential next iteration.
+            previous_response_id = Some(response.id.clone());
 
-            // TODO: This is where we might want to handle multiple responses.
-            // For example, if the LLM returns a "tool call" response for adding context,
-            // we could send it a message saying that the context has been added, and
-            // then, it may choose to reply to the user.
+            // Process the responses to determine if we need to continue the loop
+            let mut tool_calls_handled = false;
+            let mut has_final_response = false;
 
-            // TODO: We also may want to handle a "context needed" tool (which does not yet exist),
-            // that can handle cases where the LLM needs more information to proceed.  We then ping the user, see
-            // if we get anything back, and then re-run the request with the new context (preserving the request id).
+            for parsed_response in parsed_responses {
+                match parsed_response {
+                    TextOrResponse::AssistantResponse(assistant_response) => {
+                        if assistant_response.is_tool_call() {
+                            info!("Received tool call: {:?}", assistant_response);
+                            
+                            // Handle the tool call and provide feedback to the conversation
+                            let tool_result = self.handle_tool_call(&assistant_response).await?;
+                            if let Some(result_message) = tool_result {
+                                // Add the tool result as a new message in the conversation
+                                input = self.extend_input_with_tool_result(input, result_message)?;
+                                tool_calls_handled = true;
+                            }
+                            
+                            accumulated_responses.push(assistant_response);
+                        } else {
+                            // This is a final response (NoAction or ReplyToThread)
+                            info!("Received final response: {:?}", assistant_response);
+                            accumulated_responses.push(assistant_response);
+                            has_final_response = true;
+                        }
+                    }
+                    TextOrResponse::Text(text) => {
+                        info!("Received raw text response: {}", text);
+                        // For now, treat raw text as conversation completion
+                        has_final_response = true;
+                    }
+                }
+            }
 
-            // In the "standard" case, break.
-            break result;
-        };
+            // Determine if conversation is complete
+            if !tool_calls_handled || has_final_response {
+                conversation_complete = true;
+            }
 
-        Ok(result)
+            info!("Iteration {} complete. Tool calls handled: {}, Has final response: {}, Conversation complete: {}", 
+                  iteration, tool_calls_handled, has_final_response, conversation_complete);
+        }
+
+        if iteration >= MAX_ITERATIONS {
+            warn!("Assistant loop reached maximum iterations ({}), terminating", MAX_ITERATIONS);
+        }
+
+        Ok(accumulated_responses)
     }
+
+
 }
 
 /// Parse the OpenAI text response (usually only web search available).
@@ -661,5 +739,28 @@ mod tests {
         context.channel_context = large_context;
 
         let _ = client.get_web_search_agent_response(&context).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_assistant_loop_with_tool_calls() {
+        fail_if_no_api_key();
+
+        let config = create_test_config();
+        let client = LlmClient::openai(&config);
+
+        // Create a context that should trigger tool calls (include "remember" keyword)
+        let context = create_test_assistant_context("@TriageBot please remember that our deployment uses blue-green strategy");
+
+        let responses = client.get_assistant_agent_response(&context).await.unwrap();
+
+        // Should contain at least one response
+        assert!(!responses.is_empty(), "Should return at least one response");
+        
+        // Check if any response is a tool call
+        let has_tool_call = responses.iter().any(|r| r.is_tool_call());
+        
+        // For a "remember" message, we expect either a tool call or a response (depending on current implementation)
+        assert!(has_tool_call || responses.iter().any(|r| matches!(r, AssistantResponse::ReplyToThread { .. })), 
+               "Should either have a tool call or a reply response for remember requests");
     }
 }
