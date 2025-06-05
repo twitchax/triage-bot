@@ -5,7 +5,9 @@
 //! necessary components and starts the service.
 
 use clap::Parser;
-use tracing_subscriber::fmt::format::FmtSpan;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::{Protocol, WithExportConfig};
+use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use triage_bot::base::{config::Config, types::Void};
 
 /// Triage-bot – a Slack support channel triage helper.
@@ -40,12 +42,19 @@ struct Args {
 async fn main() -> Void {
     let args = Args::parse();
 
+    // Construct the level filter.
+
     let level = match args.verbose {
         0 => tracing::Level::INFO,
         1 => tracing::Level::DEBUG,
         _ => tracing::Level::TRACE,
     };
-    tracing_subscriber::fmt()
+
+    let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+
+    // Prepare the log layer.
+
+    let stdout = tracing_subscriber::fmt::layer()
         .without_time()
         .with_ansi(true)
         .with_level(true)
@@ -53,9 +62,15 @@ async fn main() -> Void {
         .with_target(false)
         .with_thread_ids(false)
         .with_thread_names(false)
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .with_max_level(level)
-        .init();
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
+
+    // Prepare the otlp layer.
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder().with_http().with_protocol(Protocol::HttpBinary).build()?;
+    let tracer = opentelemetry_sdk::trace::SdkTracerProvider::builder().with_simple_exporter(exporter).build().tracer("triage-bot");
+    let otel = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    tracing_subscriber::registry().with(otel).with(level_filter).with(stdout).init();
 
     let config = Config::load(args.config.as_deref())?;
 

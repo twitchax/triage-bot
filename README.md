@@ -115,6 +115,18 @@ openai_assistant_agent_reasoning_effort = "high"    # low, medium, high
 
 Environment variables take precedence over values in the config file.
 
+### OpenTelemetry Configuration
+
+Triage-bot also supports the standard OpenTelemetry environment variables for observability and tracing:
+
+| Environment Variable          | Description                                 | Default |
+| ----------------------------- | ------------------------------------------- | ------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL for telemetry data        | None    |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Protocol to use for OTLP export (grpc/http) | None    |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | Headers to include with OTLP requests       | None    |
+
+These variables follow the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and enable integration with observability platforms like Jaeger, Zipkin, or cloud-based tracing services.
+
 ## Architecture and Extensibility
 
 Triage-bot is designed with modularity and extensibility in mind, built around the following core components:

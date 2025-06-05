@@ -369,8 +369,6 @@ impl GenericLlmClient for OpenAiLlmClient {
                 .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
                 .collect::<Vec<AssistantResponse>>();
 
-            dbg!(&response);
-
             // Update the response id (in the case that we may loop).
             #[allow(unused_assignments)]
             {
