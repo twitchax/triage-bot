@@ -1,7 +1,7 @@
 //! This module handles the storage of messages in the database.
 
 use serde::Serialize;
-use tracing::{Instrument, error, instrument};
+use tracing::{Instrument, Span, error, instrument};
 
 use crate::{
     base::types::Void,
@@ -20,15 +20,18 @@ where
     C: Channel,
     M: Message,
 {
-    tokio::spawn(async move {
-        // Process the event.
-        let result = handle_message_storage_internal(event, channel_id, &db).in_current_span().await;
+    tokio::spawn(
+        async move {
+            // Process the event.
+            let result = handle_message_storage_internal(event, channel_id, &db).in_current_span().await;
 
-        // Log any errors.
-        if let Err(err) = &result {
-            error!("Error while handling: {}", err);
+            // Log any errors.
+            if let Err(err) = &result {
+                error!("Error while handling: {}", err);
+            }
         }
-    });
+        .instrument(Span::current()),
+    );
 }
 
 /// Internal function to handle the message storage event.

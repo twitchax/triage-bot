@@ -1,7 +1,7 @@
 //! This module handles the storage of messages in the database.
 
 use serde::Serialize;
-use tracing::{Instrument, error, info, instrument, warn};
+use tracing::{Instrument, Span, error, info, instrument, warn};
 
 use crate::{
     base::types::{AssistantClassification, AssistantContext, AssistantResponse, MessageSearchContext, Res, Void, WebSearchContext},
@@ -26,15 +26,18 @@ where
     C: Channel,
     M: Message,
 {
-    tokio::spawn(async move {
-        // Process the event.
-        let result = handle_chat_event_internal(event, channel_id, thread_ts, &db, &llm, &chat).in_current_span().await;
+    tokio::spawn(
+        async move {
+            // Process the event.
+            let result = handle_chat_event_internal(event, channel_id, thread_ts, &db, &llm, &chat).in_current_span().await;
 
-        // Log any errors.
-        if let Err(err) = &result {
-            error!("Error while handling: {}", err);
+            // Log any errors.
+            if let Err(err) = &result {
+                error!("Error while handling: {}", err);
+            }
         }
-    });
+        .instrument(Span::current()),
+    );
 }
 
 /// Internal function to handle the chat event.
