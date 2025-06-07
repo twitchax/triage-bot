@@ -1,6 +1,9 @@
 //! This module handles the storage of messages in the database.
 
+use std::pin::Pin;
+
 use serde::Serialize;
+use serde_json::Value;
 use tracing::{Instrument, Span, error, info, instrument, warn};
 
 use crate::{
@@ -21,7 +24,7 @@ use crate::{
 #[instrument(skip_all)]
 pub fn handle_chat_event<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: DbClient<L, C, M>, llm: LlmClient, chat: ChatClient)
 where
-    E: Serialize + Send + 'static,
+    E: Serialize + Clone + Send + Sync + 'static,
     L: LlmContext,
     C: Channel,
     M: Message,
@@ -44,7 +47,7 @@ where
 #[instrument(skip_all)]
 async fn handle_chat_event_internal<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: &DbClient<L, C, M>, llm: &LlmClient, chat: &ChatClient) -> Void
 where
-    E: Serialize,
+    E: Serialize + Clone + Send + Sync + 'static,
     L: LlmContext,
     C: Channel,
     M: Message,
@@ -59,8 +62,6 @@ where
     // Next, get the other context from the database.
 
     let channel_context = db.get_channel_context(&channel_id).await?;
-
-    // TODO: Maybe we can also have context about specific users that we would also look up?
 
     // Get the thread context from the event.
     // TODO: Now that we store the messages in the database, we can also get the thread context from the database (probably better).
@@ -82,47 +83,69 @@ where
     )
     .await?;
 
+    // Define the callback function to handle the assistant's response.
+
+    let db = db.clone();
+    let chat = chat.clone();
+    let response_callback = Box::new(move |responses: Vec<AssistantResponse>| {
+        let event = event.clone();
+        let channel_id = channel_id.clone();
+        let db = db.clone();
+        let chat = chat.clone();
+
+        Box::pin(async move {
+            // TODO: For now, we only handle a single response.
+            // We log an error if there are multiple responses, as there should only be one.
+            if responses.len() != 1 {
+                error!("Only one LLM response is expected.");
+            }
+
+            let response = responses.into_iter().next().unwrap_or(AssistantResponse::NoAction);
+
+            match response {
+                AssistantResponse::NoAction => warn!("No action taken."),
+                AssistantResponse::UpdateChannelDirective { message } => {
+                    info!("Updating channel directive ...");
+
+                    let directive = L::new(serde_json::to_value(&event)?, message);
+
+                    db.update_channel_directive(&channel_id, &directive).await?;
+
+                    // TODO: Send message back to LLM.
+                }
+                AssistantResponse::UpdateContext { message } => {
+                    info!("Updating context ...");
+
+                    let context = L::new(serde_json::to_value(&event)?, message);
+
+                    db.add_channel_context(&channel_id, &context).await?;
+
+                    // TODO: Send message back to LLM.
+                }
+                AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
+                    info!("Replying to thread ...");
+
+                    // Set the emoji.
+                    let emoji = match classification {
+                        AssistantClassification::Question => "question",
+                        AssistantClassification::Feature => "bulb",
+                        AssistantClassification::Bug => "bug",
+                        AssistantClassification::Incident => "warning",
+                        AssistantClassification::Other => "grey_question",
+                    };
+
+                    let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
+                    chat.send_message(&channel_id, &thread_ts, &message).await?;
+                }
+            }
+
+            // For now, we don't return any message back to the model.
+            Ok(None)
+        }) as Pin<Box<dyn Future<Output = Res<Option<Value>>> + Send>>
+    });
+
     // Call the assistant agent with all of the context.
-    let responses = llm.get_assistant_agent_response(&assistant_context).await?;
-
-    // Take the proper action based on the response.
-
-    info!("Received {} responses from LLM", responses.len());
-
-    for response in responses {
-        match response {
-            AssistantResponse::NoAction => warn!("No action taken."),
-            AssistantResponse::UpdateChannelDirective { message } => {
-                info!("Updating channel directive ...");
-
-                let directive = L::new(serde_json::to_value(&event)?, message);
-
-                db.update_channel_directive(&channel_id, &directive).await?;
-            }
-            AssistantResponse::UpdateContext { message } => {
-                info!("Updating context ...");
-
-                let context = L::new(serde_json::to_value(&event)?, message);
-
-                db.add_channel_context(&channel_id, &context).await?;
-            }
-            AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
-                info!("Replying to thread ...");
-
-                // Set the emoji.
-                let emoji = match classification {
-                    AssistantClassification::Question => "question",
-                    AssistantClassification::Feature => "bulb",
-                    AssistantClassification::Bug => "bug",
-                    AssistantClassification::Incident => "warning",
-                    AssistantClassification::Other => "grey_question",
-                };
-
-                let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
-                chat.send_message(&channel_id, &thread_ts, &message).await?;
-            }
-        }
-    }
+    llm.get_assistant_agent_response(&assistant_context, response_callback).await?;
 
     Ok(())
 }

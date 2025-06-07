@@ -7,13 +7,19 @@
 //! The module defines the `GenericLlmClient` trait that can be implemented
 //! for different LLM providers, with a default implementation for OpenAI.
 
-use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, OnceLock},
+};
 
-use crate::base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs};
 use crate::base::{
     config::Config,
-    types::{AssistantContext, MessageSearchContext, WebSearchContext},
+    types::{AssistantContext, MessageSearchContext, Void, WebSearchContext},
+};
+use crate::{
+    base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs},
+    service::llm::BoxedCallback,
 };
 use async_openai::{
     Client,
@@ -313,10 +319,9 @@ impl GenericLlmClient for OpenAiLlmClient {
 
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
-    async fn get_assistant_agent_response(&self, context: &AssistantContext) -> Res<Vec<AssistantResponse>> {
+    async fn get_assistant_agent_response(&self, context: &AssistantContext, response_callback: BoxedCallback) -> Void {
         // Build the input with search results included
         let input = self.build_assistant_agent_input(context)?;
-        let mut previous_response_id = None;
 
         // Prepare allowed tools.
 
@@ -331,64 +336,59 @@ impl GenericLlmClient for OpenAiLlmClient {
 
         let text_config = get_openai_text_config();
 
+        // Prepare the _initial_ request.
+
+        let mut request = CreateResponseArgs::default();
+
+        request
+            .max_output_tokens(self.config.openai_max_tokens)
+            .model(&self.config.openai_assistant_agent_model)
+            .instructions(self.config.assistant_agent_system_directive.clone())
+            .tools(tools.clone())
+            .text(text_config.clone())
+            .input(input);
+
+        // Add the temperature for the non-reasoning models.
+        if self.config.openai_assistant_agent_model.starts_with("gpt") {
+            request.temperature(self.config.openai_assistant_agent_temperature);
+        }
+
+        // Add the reasoning effort for `o` models.
+        if self.config.openai_assistant_agent_model.starts_with("o") {
+            let reasoning_effort = parse_openai_reasoning_effort(&self.config.openai_assistant_agent_reasoning_effort)?;
+            request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
+        }
+
         // Loop over requests until we get a "final" response.
         // For example, the LLM may give a "context needed" or "search needed" response.
 
-        #[allow(clippy::never_loop)]
-        let result = loop {
-            let mut request = CreateResponseArgs::default();
+        let mut request_queue = VecDeque::new();
+        request_queue.push_back(request);
 
-            request
-                .max_output_tokens(self.config.openai_max_tokens)
-                .model(&self.config.openai_assistant_agent_model)
-                .instructions(self.config.assistant_agent_system_directive.clone())
-                .tools(tools.clone())
-                .text(text_config.clone())
-                .input(input.clone());
-
-            // Add the temperature for the non-reasoning models.
-            if self.config.openai_assistant_agent_model.starts_with("gpt") {
-                request.temperature(self.config.openai_assistant_agent_temperature);
-            }
-
-            // Add the reasoning effort for `o` models.
-            if self.config.openai_assistant_agent_model.starts_with("o") {
-                let reasoning_effort = parse_openai_reasoning_effort(&self.config.openai_assistant_agent_reasoning_effort)?;
-                request.reasoning(ReasoningConfigArgs::default().effort(reasoning_effort).build()?);
-            }
-
-            // Add the previous request id, if it has been set (it may have been set in a previous iteration).
-            if let Some(previous_response_id) = previous_response_id {
-                request.previous_response_id(previous_response_id);
-            }
-
+        while let Some(request) = request_queue.pop_front() {
             // Send the request, and parse.
-            let response = self.call_openai_api(request).await?;
-            let result = parse_openai_response(&response)?
+            let response = self.call_openai_api(request.clone()).await?;
+            let results = parse_openai_response(&response)?
                 .into_iter()
-                .filter_map(|item| if let TextOrResponse::AssistantResponse(response) = item { Some(response) } else { None })
-                .collect::<Vec<AssistantResponse>>();
+                .filter_map(|item| if let TextOrResponse::AssistantResponse(r) = item { Some(r) } else { None })
+                .collect::<Vec<_>>();
 
-            // Update the response id (in the case that we may loop).
-            #[allow(unused_assignments)]
-            {
-                previous_response_id = Some(response.id);
+            info!("Received {} responses from LLM", results.len());
+
+            // Call the response callback, which should return a message to send back to the model.
+            let message = response_callback(results).await?;
+
+            // If there's a message, we need to add it to the request queue.
+            if let Some(message) = message {
+                let mut request = request.clone();
+
+                request.previous_response_id(&response.id).input(Input::Items(vec![InputItem::Custom(message)]));
+                request_queue.push_back(request);
+                info!("Added new request to queue with response ID: {}", response.id);
             }
+        }
 
-            // TODO: This is where we might want to handle multiple responses.
-            // For example, if the LLM returns a "tool call" response for adding context,
-            // we could send it a message saying that the context has been added, and
-            // then, it may choose to reply to the user.
-
-            // TODO: We also may want to handle a "context needed" tool (which does not yet exist),
-            // that can handle cases where the LLM needs more information to proceed.  We then ping the user, see
-            // if we get anything back, and then re-run the request with the new context (preserving the request id).
-
-            // In the "standard" case, break.
-            break result;
-        };
-
-        Ok(result)
+        Ok(())
     }
 }
 
@@ -552,6 +552,7 @@ fn parse_openai_reasoning_effort(effort: &str) -> Res<ReasoningEffort> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use tokio::sync::Mutex;
 
     use super::*;
     use crate::base::config::ConfigInner;
@@ -655,9 +656,25 @@ mod tests {
 
         let context = create_test_assistant_context(&message.to_string());
 
-        let responses = client.get_assistant_agent_response(&context).await.unwrap();
+        let responses = Arc::new(Mutex::new(Vec::new()));
+        let responses_clone = responses.clone();
 
-        assert!(!responses.is_empty(), "Should return at least one response");
+        client
+            .get_assistant_agent_response(
+                &context,
+                Box::new(move |response| {
+                    let responses_clone = responses_clone.clone();
+                    Box::pin(async move {
+                        responses_clone.lock().await.push(response);
+
+                        Ok(None)
+                    })
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert!(!responses.lock().await.is_empty(), "Should return at least one response");
     }
 
     #[tokio::test]
