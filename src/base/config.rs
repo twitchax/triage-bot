@@ -43,6 +43,12 @@ fn default_openai_max_tokens() -> u32 {
     16384
 }
 
+/// Default MCP configuration file path
+fn default_mcp_config_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{home}/.triage-bot/mcp.json")
+}
+
 /// Default system directive for the assistant agent.
 fn default_assistant_agent_system_directive() -> String {
     prompts::ASSISTANT_AGENT_SYSTEM_DIRECTIVE.to_string()
@@ -133,6 +139,10 @@ pub struct ConfigInner {
     pub db_username: String,
     /// Database password (`DB_PASSWORD`).
     pub db_password: String,
+    /// MCP configuration file path (`MCP_CONFIG_PATH`).
+    /// Path to the MCP JSON configuration file that defines available MCP servers.
+    #[serde(default = "default_mcp_config_path")]
+    pub mcp_config_path: String,
 }
 
 impl Config {
