@@ -40,6 +40,16 @@ Cargo:
 $ cargo install triage-bot
 ```
 
+## Prerequisites
+
+Triage-bot requires Node.js (version 20 or later) for MCP (Model Context Protocol) server support. Node.js and `npx` are used to run MCP servers that provide additional tools and capabilities to the bot.
+
+Install Node.js:
+
+- **Ubuntu/Debian**: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`
+- **macOS**: Use [Homebrew](https://brew.sh/): `brew install node`
+- **Windows**: Download from [nodejs.org](https://nodejs.org/)
+
 ## Usage
 
 Triage-bot monitors your Slack support channels and automatically assists with user support requests. It integrates with your existing Slack workspace and requires minimal setup to get started.

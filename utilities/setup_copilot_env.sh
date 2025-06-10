@@ -32,10 +32,22 @@ if [[ "$(uname)" == "Linux" ]] && ! command -v mold &> /dev/null; then
     sudo apt-get install -y clang mold
 fi
 
+# Install Node.js if not already installed
+if ! command -v node &> /dev/null; then
+    echo "Installing Node.js..."
+    # Install Node.js via NodeSource repository
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+else
+    echo "Node.js is already installed ($(node --version))"
+fi
+
 # Set environment variables
 export RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 
 echo "Environment setup complete. You can now build the project with:"
 echo "cargo build"
 echo "And run tests with:"
-echo "cargo test"
+echo "cargo nextest run"
+echo ""
+echo "Note: Tests require Node.js and npx for running MCP servers."

@@ -11,6 +11,9 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-05-14
@@ -28,6 +31,9 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-05-14

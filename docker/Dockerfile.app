@@ -27,7 +27,9 @@ RUN cargo build --release --bin triage-bot
 FROM ubuntu:noble AS runtime
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates curl
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+RUN apt-get install -y nodejs
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/triage-bot /usr/local/bin
