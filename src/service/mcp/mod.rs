@@ -15,6 +15,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::process::Command;
+use tracing::instrument;
 
 use crate::base::types::{AssistantTool, Res};
 
@@ -104,6 +105,7 @@ impl McpClient {
 
 impl McpClientInner {
     /// Get the definitions of the tools in LLM format.
+    #[instrument(skip_all)]
     pub fn get_assistant_tools(&self) -> Vec<AssistantTool> {
         self.mcps
             .iter()
@@ -118,6 +120,7 @@ impl McpClientInner {
     }
 
     /// Get the response for a tool call.
+    #[instrument(skip(self))]
     pub async fn call_tool(&self, name: &str, arguments: &Value) -> Res<String> {
         // Split the name to get the MCP name and tool name.
         let parts: Vec<&str> = name.split(TOOL_SEPARATOR).collect();
@@ -158,6 +161,7 @@ impl McpClientInner {
 // Helpers.
 
 /// Load the MCP JSON configuration from the given path.
+#[instrument]
 pub fn load_mcp_json(path: &str) -> Map<String, Value> {
     // Load the `mcp.json` from the configuration.
     let json = std::fs::read_to_string(path).unwrap_or("{}".to_string());
@@ -172,6 +176,7 @@ pub fn load_mcp_json(path: &str) -> Map<String, Value> {
 }
 
 /// Load the MCP JSON configuration into memory.
+#[instrument]
 pub fn get_servers_from_mcp_json(json_servers: Map<String, Value>) -> Res<Vec<McpServer>> {
     json_servers
         .into_iter()
@@ -183,6 +188,7 @@ pub fn get_servers_from_mcp_json(json_servers: Map<String, Value>) -> Res<Vec<Mc
 }
 
 /// Given an [`McpServer`], get the tools.
+#[instrument(skip_all)]
 pub async fn get_mcp_server_client(server: &McpServer) -> Res<RunningService<RoleClient, ()>> {
     match &server.config {
         McpServerConfig::Local { command, args, envs } => {
@@ -224,6 +230,7 @@ pub async fn get_mcp_server_client(server: &McpServer) -> Res<RunningService<Rol
 }
 
 /// Get the tools from the MCP server.
+#[instrument(skip_all)]
 pub async fn hydrate_mcps(servers: impl IntoIterator<Item = &McpServer>) -> Res<Vec<Mcp>> {
     // For each server, enumerate its tools, and create a `RunningService` for each.
     let tools_tasks = servers

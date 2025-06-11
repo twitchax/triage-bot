@@ -101,7 +101,7 @@ where
             let mut messages = Vec::new();
 
             for response in responses {
-                match dbg!(response) {
+                match response {
                     AssistantResponse::NoAction => warn!("No action taken."),
                     AssistantResponse::UpdateChannelDirective { call_id, message } => {
                         info!("Updating channel directive ...");

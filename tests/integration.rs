@@ -83,6 +83,8 @@ async fn setup_test_environment() -> Runtime {
         "openai_api_key": api_key,
         "openai_search_agent_model": "gpt-4.1-mini",
         "openai_assistant_agent_model": "gpt-4.1-mini",
+        "openai_search_agent_temperature": 0.1,
+        "openai_assistant_agent_temperature": 0.1,
         "openai_max_tokens": 500,
         "slack_app_token": "xapp-test",
         "slack_bot_token": "xoxb-test",
@@ -178,7 +180,7 @@ async fn test_app_mention_integration() {
 }
 
 #[tokio::test]
-async fn test_context_update_integration() {
+async fn test_directive_update_integration() {
     // Set up the test environment
     let runtime = setup_test_environment().await;
 
