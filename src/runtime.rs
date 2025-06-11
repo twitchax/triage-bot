@@ -2,8 +2,8 @@
 
 use tracing::instrument;
 
-use crate::base::config::Config;
 use crate::service::db::DbClient;
+use crate::{base::config::Config, service::mcp::McpClient};
 use crate::{
     base::types::{Res, Void},
     service::{chat::ChatClient, llm::LlmClient},
@@ -24,6 +24,8 @@ pub struct Runtime {
     pub llm: LlmClient,
     /// The slack client instance.
     pub chat: ChatClient,
+    /// The MCP client instance.
+    pub mcp: McpClient,
 }
 
 impl Runtime {
@@ -36,10 +38,13 @@ impl Runtime {
         // Initialize the LLM client.
         let llm = LlmClient::openai(&config);
 
-        // Initialize the slack client
-        let chat = ChatClient::slack(&config, db.clone(), llm.clone()).await?;
+        // Initialize the MCP client.
+        let mcp = McpClient::new(&config.mcp_config_path).await?;
 
-        Ok(Self { config, db, llm, chat })
+        // Initialize the slack client
+        let chat = ChatClient::slack(&config, db.clone(), llm.clone(), mcp.clone()).await?;
+
+        Ok(Self { config, db, llm, chat, mcp })
     }
 
     pub async fn start(&self) -> Void {

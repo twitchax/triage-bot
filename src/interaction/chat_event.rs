@@ -3,7 +3,7 @@
 use std::pin::Pin;
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tracing::{Instrument, Span, error, info, instrument, warn};
 
 use crate::{
@@ -12,6 +12,7 @@ use crate::{
         chat::ChatClient,
         db::{Channel, DbClient, LlmContext, Message},
         llm::LlmClient,
+        mcp::McpClient,
     },
 };
 
@@ -22,7 +23,7 @@ use crate::{
 /// It first retrieves the channel information and context from the database, then generates a response using the LLM,
 /// and finally takes action based on the response.
 #[instrument(skip_all)]
-pub fn handle_chat_event<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: DbClient<L, C, M>, llm: LlmClient, chat: ChatClient)
+pub fn handle_chat_event<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: DbClient<L, C, M>, llm: LlmClient, chat: ChatClient, mcp: McpClient)
 where
     E: Serialize + Clone + Send + Sync + 'static,
     L: LlmContext,
@@ -32,7 +33,7 @@ where
     tokio::spawn(
         async move {
             // Process the event.
-            let result = handle_chat_event_internal(event, channel_id, thread_ts, &db, &llm, &chat).in_current_span().await;
+            let result = handle_chat_event_internal(event, channel_id, thread_ts, &db, &llm, &chat, &mcp).in_current_span().await;
 
             // Log any errors.
             if let Err(err) = &result {
@@ -45,7 +46,7 @@ where
 
 /// Internal function to handle the chat event.
 #[instrument(skip_all)]
-async fn handle_chat_event_internal<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: &DbClient<L, C, M>, llm: &LlmClient, chat: &ChatClient) -> Void
+async fn handle_chat_event_internal<E, L, C, M>(event: E, channel_id: String, thread_ts: String, db: &DbClient<L, C, M>, llm: &LlmClient, chat: &ChatClient, mcp: &McpClient) -> Void
 where
     E: Serialize + Clone + Send + Sync + 'static,
     L: LlmContext,
@@ -80,6 +81,7 @@ where
         db,
         llm,
         chat,
+        mcp,
     )
     .await?;
 
@@ -87,65 +89,85 @@ where
 
     let db = db.clone();
     let chat = chat.clone();
+    let mcp = mcp.clone();
     let response_callback = Box::new(move |responses: Vec<AssistantResponse>| {
         let event = event.clone();
         let channel_id = channel_id.clone();
         let db = db.clone();
         let chat = chat.clone();
+        let mcp = mcp.clone();
 
         Box::pin(async move {
-            // TODO: For now, we only handle a single response.
-            // We log an error if there are multiple responses, as there should only be one.
-            if responses.len() != 1 {
-                error!("Only one LLM response is expected.");
+            let mut messages = Vec::new();
+
+            for response in responses {
+                match dbg!(response) {
+                    AssistantResponse::NoAction => warn!("No action taken."),
+                    AssistantResponse::UpdateChannelDirective { call_id, message } => {
+                        info!("Updating channel directive ...");
+
+                        let directive = L::new(serde_json::to_value(&event)?, message);
+
+                        db.update_channel_directive(&channel_id, &directive).await?;
+
+                        // Send the result back to the LLM.
+                        messages.push(json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": "Channel directive updated successfully.",
+                        }));
+                    }
+                    AssistantResponse::UpdateContext { call_id, message } => {
+                        info!("Updating context ...");
+
+                        let context = L::new(serde_json::to_value(&event)?, message);
+
+                        db.add_channel_context(&channel_id, &context).await?;
+
+                        // Send the result back to the LLM.
+                        messages.push(json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": "Context updated successfully.",
+                        }));
+                    }
+                    AssistantResponse::McpTool { call_id, name, arguments } => {
+                        info!("Calling MCP tool: {} ...", name);
+
+                        // Call the MCP tool with the provided arguments.
+                        let mcp_result = mcp.call_tool(&name, &arguments).await?;
+
+                        // Send the result back to the LLM.
+                        messages.push(json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": mcp_result,
+                        }));
+                    }
+                    AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
+                        info!("Replying to thread ...");
+
+                        // Set the emoji.
+                        let emoji = match classification {
+                            AssistantClassification::Question => "question",
+                            AssistantClassification::Feature => "bulb",
+                            AssistantClassification::Bug => "bug",
+                            AssistantClassification::Incident => "warning",
+                            AssistantClassification::Other => "grey_question",
+                        };
+
+                        let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
+                        chat.send_message(&channel_id, &thread_ts, &message).await?;
+                    }
+                }
             }
 
-            let response = responses.into_iter().next().unwrap_or(AssistantResponse::NoAction);
-
-            match response {
-                AssistantResponse::NoAction => warn!("No action taken."),
-                AssistantResponse::UpdateChannelDirective { message } => {
-                    info!("Updating channel directive ...");
-
-                    let directive = L::new(serde_json::to_value(&event)?, message);
-
-                    db.update_channel_directive(&channel_id, &directive).await?;
-
-                    // TODO: Send message back to LLM.
-                }
-                AssistantResponse::UpdateContext { message } => {
-                    info!("Updating context ...");
-
-                    let context = L::new(serde_json::to_value(&event)?, message);
-
-                    db.add_channel_context(&channel_id, &context).await?;
-
-                    // TODO: Send message back to LLM.
-                }
-                AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
-                    info!("Replying to thread ...");
-
-                    // Set the emoji.
-                    let emoji = match classification {
-                        AssistantClassification::Question => "question",
-                        AssistantClassification::Feature => "bulb",
-                        AssistantClassification::Bug => "bug",
-                        AssistantClassification::Incident => "warning",
-                        AssistantClassification::Other => "grey_question",
-                    };
-
-                    let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
-                    chat.send_message(&channel_id, &thread_ts, &message).await?;
-                }
-            }
-
-            // For now, we don't return any message back to the model.
-            Ok(None)
-        }) as Pin<Box<dyn Future<Output = Res<Option<Value>>> + Send>>
+            Ok(messages)
+        }) as Pin<Box<dyn Future<Output = Res<Vec<Value>>> + Send>>
     });
 
     // Call the assistant agent with all of the context.
-    llm.get_assistant_agent_response(&assistant_context, response_callback).await?;
+    llm.get_assistant_agent_response(assistant_context, response_callback).await?;
 
     Ok(())
 }
@@ -166,6 +188,7 @@ async fn compile_contexts<L, C, M>(
     db: &DbClient<L, C, M>,
     llm: &LlmClient,
     _chat: &ChatClient,
+    mcp: &McpClient,
 ) -> Res<AssistantContext>
 where
     L: LlmContext,
@@ -183,7 +206,7 @@ where
         thread_context: thread_context.clone(),
     };
 
-    let web_search_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(&web_search_context).await });
+    let web_search_task = tokio::spawn(async move { llm_clone.get_web_search_agent_response(web_search_context).await });
 
     // Execute the message search agent to identify relevant messages from the channel history.
 
@@ -200,7 +223,7 @@ where
 
     let message_search_task = tokio::spawn(async move {
         // Get search terms from the message search agent
-        let search_terms = llm_clone.get_message_search_agent_response(&message_search_context).await?;
+        let search_terms = llm_clone.get_message_search_agent_response(message_search_context).await?;
 
         // Search for relevant messages using the search terms
         let messages = if !search_terms.is_empty() {
@@ -218,6 +241,10 @@ where
     let web_search_result = web_search_result??;
     let message_search_result = message_search_result??;
 
+    // Prepare the list of tools.
+
+    let tools = mcp.get_assistant_tools();
+
     // Prepare results.
 
     let agent_responses = AssistantContext {
@@ -230,6 +257,7 @@ where
         channel_directive,
         channel_context,
         thread_context,
+        tools,
     };
 
     Ok(agent_responses)

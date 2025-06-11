@@ -56,6 +56,8 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
 
 *Any custom tool call emitted without its trigger is ignored by the server.*  Make sure you really want it.
 
+In general, you should not call both of these tools in the same request stream.
+
 ---
 
 ### ABSOLUTE TOOL RULE

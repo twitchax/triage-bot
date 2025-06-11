@@ -1,6 +1,6 @@
 //! This module contains the implementation for the MCP (Model Control Protocol) service.
 
-use std::{ops::Deref, str::FromStr, sync::Arc};
+use std::{borrow::Cow, ops::Deref, str::FromStr, sync::Arc};
 
 use hyper::{
     HeaderMap,
@@ -8,7 +8,7 @@ use hyper::{
 };
 use rmcp::{
     RoleClient, ServiceExt,
-    model::Tool,
+    model::{CallToolRequestParam, Tool},
     service::RunningService,
     transport::{StreamableHttpClientTransport, TokioChildProcess, streamable_http_client::StreamableHttpClientTransportConfig},
 };
@@ -16,7 +16,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::process::Command;
 
-use crate::base::types::Res;
+use crate::base::types::{AssistantTool, Res};
+
+// Statics.
+
+pub const TOOL_SEPARATOR: &str = "__";
 
 // Types.
 
@@ -98,6 +102,59 @@ impl McpClient {
     }
 }
 
+impl McpClientInner {
+    /// Get the definitions of the tools in LLM format.
+    pub fn get_assistant_tools(&self) -> Vec<AssistantTool> {
+        self.mcps
+            .iter()
+            .flat_map(|mcp| {
+                mcp.tools.iter().map(|tool| AssistantTool {
+                    name: format!("{}{}{}", mcp.name, TOOL_SEPARATOR, tool.name),
+                    description: tool.description.as_ref().map(|desc| desc.to_string()),
+                    parameters: tool.schema_as_json_value(),
+                })
+            })
+            .collect()
+    }
+
+    /// Get the response for a tool call.
+    pub async fn call_tool(&self, name: &str, arguments: &Value) -> Res<String> {
+        // Split the name to get the MCP name and tool name.
+        let parts: Vec<&str> = name.split(TOOL_SEPARATOR).collect();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid tool name format: {}", name));
+        }
+        let mcp_name = parts[0];
+        let tool_name = parts[1];
+
+        // Find the MCP by name (maybe refactor to a `Map`, but, at this scale, it shouldn't matter).
+        let mcp = self.mcps.iter().find(|m| m.name == mcp_name).ok_or_else(|| anyhow::anyhow!("MCP not found: {}", mcp_name))?;
+
+        // Call the tool with the provided arguments.
+        let tool_result = mcp
+            .client
+            .call_tool(CallToolRequestParam {
+                name: Cow::Owned(tool_name.to_string()),
+                arguments: Some(arguments.as_object().cloned().unwrap_or_default()),
+            })
+            .await?;
+
+        if let Some(is_error) = tool_result.is_error
+            && is_error
+        {
+            return Err(anyhow::anyhow!("Error calling tool: {}", name));
+        }
+
+        let result = tool_result
+            .content
+            .into_iter()
+            .map(|content| content.as_text().map(|text| text.text.clone()).unwrap_or_default())
+            .collect::<Vec<_>>();
+
+        Ok(result.join("\n\n"))
+    }
+}
+
 // Helpers.
 
 /// Load the MCP JSON configuration from the given path.
@@ -116,11 +173,9 @@ pub fn load_mcp_json(path: &str) -> Map<String, Value> {
 
 /// Load the MCP JSON configuration into memory.
 pub fn get_servers_from_mcp_json(json_servers: Map<String, Value>) -> Res<Vec<McpServer>> {
-    dbg!(json_servers)
+    json_servers
         .into_iter()
         .map(|(name, value)| {
-            dbg!(name.clone());
-            dbg!(&value);
             let config = serde_json::from_value::<McpServerConfig>(value)?;
             Ok(McpServer { name, config })
         })

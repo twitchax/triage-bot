@@ -33,5 +33,6 @@ RUN apt-get install -y nodejs
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/triage-bot /usr/local/bin
+COPY docker/mcp.json /mcp.json
 
 ENTRYPOINT ["/usr/local/bin/triage-bot"]

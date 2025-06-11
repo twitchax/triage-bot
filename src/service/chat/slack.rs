@@ -14,7 +14,7 @@ use crate::{
         types::{Res, Void},
     },
     interaction,
-    service::{db::DbClient, llm::LlmClient},
+    service::{db::DbClient, llm::LlmClient, mcp::McpClient},
 };
 use async_trait::async_trait;
 use hyper_rustls::HttpsConnector;
@@ -34,8 +34,8 @@ type FullClient = slack_morphism::SlackClient<SlackClientHyperConnector<HttpsCon
 
 impl ChatClient {
     /// Creates a new Slack chat client.
-    pub async fn slack(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
-        let client = SlackChatClient::new(config, db.clone(), llm.clone()).await?;
+    pub async fn slack(config: &Config, db: DbClient, llm: LlmClient, mcp: McpClient) -> Res<Self> {
+        let client = SlackChatClient::new(config, db.clone(), llm.clone(), mcp.clone()).await?;
         Ok(Self { inner: Arc::new(client) })
     }
 }
@@ -52,7 +52,8 @@ impl From<SlackChatClient> for ChatClient {
 struct SlackUserState {
     db: DbClient,
     llm: LlmClient,
-    chat_client: ChatClient,
+    chat: ChatClient,
+    mcp: McpClient,
     bot_user_id: String,
 }
 
@@ -65,6 +66,7 @@ struct SlackChatClient {
     pub client: Arc<FullClient>,
     pub db: DbClient,
     pub llm: LlmClient,
+    pub mcp: McpClient,
 }
 
 impl Deref for SlackChatClient {
@@ -78,7 +80,7 @@ impl Deref for SlackChatClient {
 impl SlackChatClient {
     /// Create a new Slack chat client.
     #[instrument(name = "SlackChatClient::new", skip_all)]
-    pub async fn new(config: &Config, db: DbClient, llm: LlmClient) -> Res<Self> {
+    pub async fn new(config: &Config, db: DbClient, llm: LlmClient, mcp: McpClient) -> Res<Self> {
         // Initialize tokens.
 
         let app_token = SlackApiToken::new(SlackApiTokenValue(config.slack_app_token.clone()));
@@ -105,6 +107,7 @@ impl SlackChatClient {
             client,
             db,
             llm,
+            mcp,
         })
     }
 }
@@ -129,7 +132,8 @@ impl GenericChatClient for SlackChatClient {
             db: self.db.clone(),
             llm: self.llm.clone(),
             bot_user_id: self.bot_user_id.clone(),
-            chat_client: ChatClient::from(self.clone()),
+            chat: ChatClient::from(self.clone()),
+            mcp: self.mcp.clone(),
         }));
 
         let socket_mode_listener = Arc::new(SlackClientSocketModeListener::new(
@@ -256,7 +260,8 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
                 thread_ts,
                 user_state.db.clone(),
                 user_state.llm.clone(),
-                user_state.chat_client.clone(),
+                user_state.chat.clone(),
+                user_state.mcp.clone(),
             );
         }
         SlackEventCallbackBody::AppMention(slack_app_mention_event) => {
@@ -270,7 +275,8 @@ async fn handle_push_event(event_callback: SlackPushEventCallback, _client: Arc<
                 thread_ts,
                 user_state.db.clone(),
                 user_state.llm.clone(),
-                user_state.chat_client.clone(),
+                user_state.chat.clone(),
+                user_state.mcp.clone(),
             );
         }
         //SlackEventCallbackBody::LinkShared(slack_link_shared_event) => todo!(),

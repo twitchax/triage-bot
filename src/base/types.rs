@@ -5,6 +5,7 @@
 //! types from the assistant.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Standard error type used throughout the application.
 pub type Err = anyhow::Error;
@@ -39,12 +40,21 @@ pub enum AssistantResponse {
         message: String,
     },
 
-    // Tool calls.
+    // Built-in Tool calls.
     UpdateChannelDirective {
+        call_id: String,
         message: String,
     },
     UpdateContext {
+        call_id: String,
         message: String,
+    },
+
+    // MCP Tool calls.
+    McpTool {
+        call_id: String,
+        name: String,
+        arguments: Value,
     },
 }
 
@@ -73,6 +83,17 @@ pub enum TextOrResponse {
 pub struct ToolContextFunctionCallArgs {
     /// The message that represents what the bot "thinks about" the directive / context update.
     pub message: String,
+}
+
+/// Definition of a tool, as sent to the LLM.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssistantTool {
+    /// The name of the tool.
+    pub name: String,
+    /// The description of the tool.
+    pub description: Option<String>,
+    /// The parameters that the tool accepts.
+    pub parameters: serde_json::Value,
 }
 
 /// Helper struct to handle the context for the web search LLM.
@@ -117,4 +138,5 @@ pub struct AssistantContext {
     pub thread_context: String,
     pub web_search_context: String,
     pub message_search_context: String,
+    pub tools: Vec<AssistantTool>,
 }

@@ -15,7 +15,7 @@ use std::{
 
 use crate::base::{
     config::Config,
-    types::{AssistantContext, MessageSearchContext, Void, WebSearchContext},
+    types::{AssistantContext, AssistantTool, MessageSearchContext, Void, WebSearchContext},
 };
 use crate::{
     base::types::{AssistantResponse, Res, TextOrResponse, ToolContextFunctionCallArgs},
@@ -232,9 +232,9 @@ impl OpenAiLlmClient {
 #[async_trait]
 impl GenericLlmClient for OpenAiLlmClient {
     #[instrument(name = "OpenAiLlmClient::execute_web_search", skip_all)]
-    async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String> {
+    async fn get_web_search_agent_response(&self, context: WebSearchContext) -> Res<String> {
         // Create a search-specific prompt input
-        let input = self.build_web_search_input(context)?;
+        let input = self.build_web_search_input(&context)?;
 
         // Prepare web search tools
         let search_tools = get_openai_search_tools().clone();
@@ -277,9 +277,9 @@ impl GenericLlmClient for OpenAiLlmClient {
     }
 
     #[instrument(name = "OpenAiLlmClient::execute_message_search", skip_all)]
-    async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String> {
+    async fn get_message_search_agent_response(&self, context: MessageSearchContext) -> Res<String> {
         // Create a message search-specific prompt input
-        let input = self.build_message_search_input(context)?;
+        let input = self.build_message_search_input(&context)?;
 
         // Text config for the message search response
         let text_config = TextConfig { format: TextResponseFormat::Text };
@@ -319,18 +319,24 @@ impl GenericLlmClient for OpenAiLlmClient {
 
     /// Generate a response from a static system prompt and user message.
     #[instrument(skip_all)]
-    async fn get_assistant_agent_response(&self, context: &AssistantContext, response_callback: BoxedCallback) -> Void {
+    async fn get_assistant_agent_response(&self, context: AssistantContext, response_callback: BoxedCallback) -> Void {
         // Build the input with search results included
-        let input = self.build_assistant_agent_input(context)?;
+        let input = self.build_assistant_agent_input(&context)?;
 
         // Prepare allowed tools.
 
         // The LLM often thinks it wants to update its context: let's not allow that unless the user explicitly asks for it.
-        let tools = if context.user_message.contains("remember") || context.user_message.contains("directive") {
+        let native_tools = if context.user_message.contains("remember") || context.user_message.contains("directive") {
             get_openai_assistant_tools()
         } else {
             get_openai_restricted_tools()
-        };
+        }
+        .clone();
+
+        // Add the MCP tools.
+
+        let mcp_tools = get_tools_from_mcps(context.tools)?;
+        let tools = [native_tools, mcp_tools].concat();
 
         // Prepare text config.
 
@@ -344,7 +350,7 @@ impl GenericLlmClient for OpenAiLlmClient {
             .max_output_tokens(self.config.openai_max_tokens)
             .model(&self.config.openai_assistant_agent_model)
             .instructions(self.config.assistant_agent_system_directive.clone())
-            .tools(tools.clone())
+            .tools(tools)
             .text(text_config.clone())
             .input(input);
 
@@ -376,13 +382,16 @@ impl GenericLlmClient for OpenAiLlmClient {
             info!("Received {} responses from LLM", results.len());
 
             // Call the response callback, which should return a message to send back to the model.
-            let message = response_callback(results).await?;
+            let messages = response_callback(results).await?;
 
-            // If there's a message, we need to add it to the request queue.
-            if let Some(message) = message {
+            // If there are messages, we need to add them to the request queue.
+            let input = messages.into_iter().map(InputItem::Custom).collect::<Vec<_>>();
+
+            // Create a new request with the previous response ID and the new input.
+            if !input.is_empty() {
                 let mut request = request.clone();
 
-                request.previous_response_id(&response.id).input(Input::Items(vec![InputItem::Custom(message)]));
+                request.previous_response_id(&response.id).input(Input::Items(input));
                 request_queue.push_back(request);
                 info!("Added new request to queue with response ID: {}", response.id);
             }
@@ -431,18 +440,29 @@ pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
 
                     let ToolContextFunctionCallArgs { message } = serde_json::from_str(&function_call.arguments)?;
 
-                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateChannelDirective { message }));
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateChannelDirective {
+                        call_id: function_call.call_id.clone(),
+                        message,
+                    }));
                 }
                 "update_channel_context" => {
                     info!("Update context tool called ...");
 
                     let ToolContextFunctionCallArgs { message } = serde_json::from_str(&function_call.arguments)?;
 
-                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateContext { message }));
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::UpdateContext {
+                        call_id: function_call.call_id.clone(),
+                        message,
+                    }));
                 }
                 _ => {
-                    warn!("Unknown function call: {function_call:#?}");
-                    return Err(anyhow::anyhow!("Unknown function call."));
+                    info!("MCP tool call: {} ...", function_call.name);
+
+                    result.push(TextOrResponse::AssistantResponse(AssistantResponse::McpTool {
+                        call_id: function_call.call_id.clone(),
+                        name: function_call.name.clone(),
+                        arguments: serde_json::from_str(&function_call.arguments)?,
+                    }));
                 }
             },
             OutputContent::WebSearchCall(web_search_call) => {
@@ -463,6 +483,26 @@ static OPENAI_FULL_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
 static OPENAI_RESTRICTED_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
 static OPENAI_SEARCH_TOOLS: OnceLock<Vec<ToolDefinition>> = OnceLock::new();
 static OPENAI_TEXT_CONFIG: OnceLock<TextConfig> = OnceLock::new();
+
+/// Get the MCP OpenAI assistant tools.
+fn get_tools_from_mcps(tools: impl IntoIterator<Item = AssistantTool>) -> Res<Vec<ToolDefinition>> {
+    let tools = tools
+        .into_iter()
+        .map(|tool| {
+            Ok(ToolDefinition::Function(
+                FunctionArgs::default()
+                    .name(tool.name)
+                    .description(tool.description.unwrap_or_default())
+                    .parameters(tool.parameters)
+                    // TODO: Enable strict mode once OpenAI allows it properly (see https://platform.openai.com/docs/guides/function-calling?api-mode=responses#:~:text=All%20fields%20in,.).
+                    //.strict(true)
+                    .build()?,
+            ))
+        })
+        .collect::<Res<Vec<_>>>()?;
+
+    Ok(tools)
+}
 
 /// Get the OpenAI assistant tools.
 fn get_openai_assistant_tools() -> &'static Vec<ToolDefinition> {
@@ -510,6 +550,7 @@ fn get_openai_search_tools() -> &'static Vec<ToolDefinition> {
     OPENAI_SEARCH_TOOLS.get_or_init(|| vec![ToolDefinition::WebSearchPreview(WebSearchPreviewArgs::default().build().unwrap())])
 }
 
+/// Get the OpenAI text response configuration.
 fn get_openai_text_config() -> &'static TextConfig {
     OPENAI_TEXT_CONFIG.get_or_init(|| TextConfig {
         format: TextResponseFormat::JsonSchema(ResponseFormatJsonSchema {
@@ -608,6 +649,7 @@ mod tests {
             thread_context: "User conversation".to_string(),
             web_search_context: "".to_string(),
             message_search_context: "".to_string(),
+            tools: vec![],
         }
     }
 
@@ -619,7 +661,7 @@ mod tests {
         let client = LlmClient::openai(&config);
         let context = create_test_web_search_context("What is Rust programming language?");
 
-        let response = client.get_web_search_agent_response(&context).await.unwrap();
+        let response = client.get_web_search_agent_response(context).await.unwrap();
 
         assert!(!response.is_empty(), "Response should not be empty");
     }
@@ -632,7 +674,7 @@ mod tests {
         let client = LlmClient::openai(&config);
         let context = create_test_message_search_context("Find messages about deployment issues");
 
-        let response = client.get_message_search_agent_response(&context).await.unwrap();
+        let response = client.get_message_search_agent_response(context).await.unwrap();
 
         assert!(!response.is_empty(), "Response should not be empty");
         // The response should contain search terms
@@ -661,13 +703,13 @@ mod tests {
 
         client
             .get_assistant_agent_response(
-                &context,
+                context,
                 Box::new(move |response| {
                     let responses_clone = responses_clone.clone();
                     Box::pin(async move {
                         responses_clone.lock().await.push(response);
 
-                        Ok(None)
+                        Ok(vec![])
                     })
                 }),
             )
@@ -687,7 +729,7 @@ mod tests {
         let client = LlmClient::openai(&config);
         let context = create_test_web_search_context("test");
 
-        let result = client.get_web_search_agent_response(&context).await;
+        let result = client.get_web_search_agent_response(context).await;
         assert!(result.is_err(), "Should fail with invalid API key");
     }
 
@@ -701,7 +743,7 @@ mod tests {
         context.channel_context = "".to_string();
         context.thread_context = "".to_string();
 
-        let _ = client.get_message_search_agent_response(&context).await.unwrap();
+        let _ = client.get_message_search_agent_response(context).await.unwrap();
     }
 
     #[tokio::test]
@@ -716,6 +758,6 @@ mod tests {
         let mut context = create_test_web_search_context("Simple question");
         context.channel_context = large_context;
 
-        let _ = client.get_web_search_agent_response(&context).await.unwrap();
+        let _ = client.get_web_search_agent_response(context).await.unwrap();
     }
 }

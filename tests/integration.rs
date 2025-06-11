@@ -19,6 +19,7 @@ use triage_bot::{
         chat::{ChatClient, GenericChatClient},
         db::{DbClient, surreal::SurrealDbClient},
         llm::LlmClient,
+        mcp::McpClient,
     },
 };
 
@@ -88,7 +89,8 @@ async fn setup_test_environment() -> Runtime {
         "slack_signing_secret": "test_secret",
         "db_endpoint": "memory",
         "db_username": "test",
-        "db_password": "test"
+        "db_password": "test",
+        "mcp_config_path": "tests/mcp.json",
     });
 
     let config = Config {
@@ -104,7 +106,10 @@ async fn setup_test_environment() -> Runtime {
     // We create a mocked version of the chat client that just returns success on all calls.
     let chat = ChatClient::new(Arc::new(get_mock_chat()));
 
-    Runtime { config, db, llm, chat }
+    // Create an MCP client from the test version.
+    let mcp = McpClient::new(&config.mcp_config_path).await.expect("Failed to create MCP client");
+
+    Runtime { config, db, llm, chat, mcp }
 }
 
 #[tokio::test]
@@ -159,6 +164,7 @@ async fn test_app_mention_integration() {
         runtime.db.clone(),
         runtime.llm.clone(),
         runtime.chat.clone(),
+        runtime.mcp.clone(),
     );
 
     // First, we should detect the channel creation.
@@ -201,6 +207,7 @@ async fn test_context_update_integration() {
         runtime.db.clone(),
         runtime.llm.clone(),
         runtime.chat.clone(),
+        runtime.mcp.clone(),
     );
 
     // First, we should detect the channel creation.
@@ -249,6 +256,7 @@ async fn test_add_context_integration() {
         runtime.db.clone(),
         runtime.llm.clone(),
         runtime.chat.clone(),
+        runtime.mcp.clone(),
     );
 
     // We should detect the context creation.
@@ -333,6 +341,7 @@ async fn test_message_search_integration() {
         runtime.db.clone(),
         runtime.llm.clone(),
         runtime.chat.clone(),
+        runtime.mcp.clone(),
     );
 
     // Next, we should see if we get a message sent.
@@ -373,8 +382,24 @@ async fn test_multiple_channel_isolation_integration() {
     let mut live_query = runtime.db.get_channel_live_query().await.expect("Failed to start live query");
 
     // Process both messages
-    triage_bot::interaction::chat_event::handle_chat_event(message1, channel1.to_string(), thread_ts.to_string(), runtime.db.clone(), runtime.llm.clone(), runtime.chat.clone());
-    triage_bot::interaction::chat_event::handle_chat_event(message2, channel2.to_string(), thread_ts.to_string(), runtime.db.clone(), runtime.llm.clone(), runtime.chat.clone());
+    triage_bot::interaction::chat_event::handle_chat_event(
+        message1,
+        channel1.to_string(),
+        thread_ts.to_string(),
+        runtime.db.clone(),
+        runtime.llm.clone(),
+        runtime.chat.clone(),
+        runtime.mcp.clone(),
+    );
+    triage_bot::interaction::chat_event::handle_chat_event(
+        message2,
+        channel2.to_string(),
+        thread_ts.to_string(),
+        runtime.db.clone(),
+        runtime.llm.clone(),
+        runtime.chat.clone(),
+        runtime.mcp.clone(),
+    );
 
     // Get the event for both channels.
     let event1 = live_query.next().await.expect("Failed to get live query event").unwrap();
@@ -385,4 +410,59 @@ async fn test_multiple_channel_isolation_integration() {
     assert_eq!(event1.data.id.unwrap().key().to_string(), channel1.to_string(), "Expected event for 'channel' table for channel 1");
     assert_eq!(event2.action, Action::Create, "Expected channel creation event for channel 2");
     assert_eq!(event2.data.id.unwrap().key().to_string(), channel2.to_string(), "Expected event for 'channel' table for channel 2");
+}
+
+#[tokio::test]
+async fn test_mcp_access() {
+    // Set up the test environment
+    let mut runtime = setup_test_environment().await;
+
+    // Create a test channel
+    let channel_id = "C06MCPTEST";
+    let thread_ts = "1234567890.333333";
+
+    // Create an mpsc channel to get notification on when a message is sent.
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+    // Override the chat mock to expect a message send.
+    let mut chat_mock = MockChat::new();
+    chat_mock.expect_bot_user_id().return_const("U12345".to_string());
+    chat_mock.expect_get_thread_context().returning(move |_, _| Ok("Test context".to_string()));
+    chat_mock.expect_react_to_message().returning(move |_, _, _| Ok(()));
+    chat_mock.expect_send_message().withf(move |c, t, _| c == channel_id && t == thread_ts).returning(move |_, _, m| {
+        let m = m.to_string();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            // Simulate sending a message by sending it through the mpsc channel
+            tx.send(m).await.expect("Failed to send message");
+        });
+
+        Ok(())
+    });
+    runtime.chat = ChatClient::new(Arc::new(chat_mock));
+
+    // Create a message that would trigger MCP access
+    let mcp_message = serde_json::json!({
+        "type": "app_mention",
+        "user": "U54321",
+        "text": "<@U12345> Use the `everything__add` tool to add 5 and 6.",
+        "ts": "1234567890.333333",
+        "channel": channel_id,
+        "event_ts": "1234567890.333333",
+    });
+
+    // Call the handler
+    triage_bot::interaction::chat_event::handle_chat_event(
+        mcp_message,
+        channel_id.to_string(),
+        thread_ts.to_string(),
+        runtime.db.clone(),
+        runtime.llm.clone(),
+        runtime.chat.clone(),
+        runtime.mcp.clone(),
+    );
+
+    // Next, we should see if we get a message sent.
+    let sent_message = rx.recv().await.expect("Failed to receive message");
+    assert!(sent_message.len() > 10, "Expected sent message");
 }

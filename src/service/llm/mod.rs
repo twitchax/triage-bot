@@ -8,7 +8,7 @@ use std::{ops::Deref, pin::Pin};
 
 // Types.
 
-pub type BoxedCallback = Box<dyn Fn(Vec<AssistantResponse>) -> Pin<Box<dyn Future<Output = Res<Option<Value>>> + Send>> + Send + Sync>;
+pub type BoxedCallback = Box<dyn Fn(Vec<AssistantResponse>) -> Pin<Box<dyn Future<Output = Res<Vec<Value>>> + Send>> + Send + Sync>;
 
 // Traits.
 
@@ -22,13 +22,13 @@ pub trait GenericLlmClient: Send + Sync + 'static {
     ///
     /// This method takes search context about a user message and returns
     /// relevant information from web searches to help answer the query.
-    async fn get_web_search_agent_response(&self, context: &WebSearchContext) -> Res<String>;
+    async fn get_web_search_agent_response(&self, context: WebSearchContext) -> Res<String>;
 
     /// Generate search terms for message search using the message search agent.
     ///
     /// This method analyzes a user message and extracts key search terms that
     /// can be used to find relevant past messages in the channel history.
-    async fn get_message_search_agent_response(&self, context: &MessageSearchContext) -> Res<String>;
+    async fn get_message_search_agent_response(&self, context: MessageSearchContext) -> Res<String>;
 
     /// Generate a response from the primary assistant model.
     ///
@@ -41,7 +41,7 @@ pub trait GenericLlmClient: Send + Sync + 'static {
     ///
     /// The response callback should return a `Value` that represents any "message" back
     /// to the model.
-    async fn get_assistant_agent_response(&self, context: &AssistantContext, response_callback: BoxedCallback) -> Void;
+    async fn get_assistant_agent_response(&self, context: AssistantContext, response_callback: BoxedCallback) -> Void;
 }
 
 // Structs.
