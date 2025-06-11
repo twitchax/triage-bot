@@ -21,7 +21,8 @@ jobs:
         with:
           cache-all-crates: "true"
       - run: cargo install cargo-nextest
-      - run: cargo nextest run
+      # Using `-j 1` to avoid issues with parallel execution for `npx`.  Yes, it's `node`'s fault.'
+      - run: cargo nextest run -j 1
 
   codecov:
     needs: test
@@ -42,7 +43,8 @@ jobs:
           cache-all-crates: "true"
       - run: cargo install cargo-llvm-cov
       - run: cargo install cargo-nextest
-      - run: cargo llvm-cov nextest --all-features --workspace --lcov --output-path coverage.lcov
+      # Using `-j 1` to avoid issues with parallel execution for `npx`.  Yes, it's `node`'s fault.'
+      - run: cargo llvm-cov nextest -j 1 --all-features --workspace --lcov --output-path coverage.lcov
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
