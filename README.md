@@ -269,8 +269,6 @@ RUST_LOG=debug triage-bot
 
 ## Architecture and Extensibility
 
-## Architecture and Extensibility
-
 Triage-bot is built with a modular, trait-based architecture that makes it easy to extend or replace components.
 
 ### Core Components
