@@ -269,6 +269,86 @@ triage-bot -v
 
 Triage-bot is built with a modular, trait-based architecture that makes it easy to extend or replace components.
 
+### Architecture Overview
+
+```mermaid
+graph TD
+    %% Message Flow
+    user_message[👤 User sends message<br/>in Slack channel]
+    
+    %% Event Processing
+    event_handler[🎯 Event Handler<br/>Receives message event]
+    
+    %% Context Gathering
+    subgraph "Context Gathering"
+        get_channel[📋 Get Channel Info<br/>& Directive from DB]
+        get_history[📚 Get Thread Context<br/>from Slack API]
+        get_context[🧠 Get Channel Context<br/>& Memory from DB]
+    end
+    
+    %% Multi-Agent LLM Processing
+    subgraph "Multi-Agent LLM Processing"
+        search_agent[🔍 Search Agent<br/>Web search for context<br/><i>gpt-4o, temp=0.0</i>]
+        message_agent[📖 Message Agent<br/>Search channel history<br/><i>keyword extraction</i>]
+        assistant_agent[🤖 Assistant Agent<br/>Generate response & tools<br/><i>o3, temp=0.7</i>]
+    end
+    
+    %% Response Processing
+    subgraph "Response Actions"
+        reply[💬 Reply to Thread]
+        tools[🛠️ Execute MCP Tools<br/>- Update context<br/>- Call external APIs]
+        react[😊 Add Emoji Reactions]
+        store[💾 Store in Database]
+    end
+    
+    %% External Services
+    slack[(Slack)]
+    openai[(OpenAI)]
+    surrealdb[(SurrealDB)]
+    mcp_tools[🔧 MCP Tools<br/>DeepWiki, etc.]
+    
+    %% Flow
+    user_message --> event_handler
+    event_handler --> get_channel
+    event_handler --> get_history
+    event_handler --> get_context
+    
+    get_channel --> search_agent
+    get_history --> message_agent
+    get_context --> assistant_agent
+    
+    search_agent -->|Web results| assistant_agent
+    message_agent -->|Channel history| assistant_agent
+    
+    assistant_agent --> reply
+    assistant_agent --> tools
+    assistant_agent --> react
+    assistant_agent --> store
+    
+    %% External connections
+    get_channel -.-> surrealdb
+    get_context -.-> surrealdb
+    get_history -.-> slack
+    search_agent -.-> openai
+    message_agent -.-> openai
+    assistant_agent -.-> openai
+    reply -.-> slack
+    tools -.-> mcp_tools
+    react -.-> slack
+    store -.-> surrealdb
+
+    %% Styling
+    classDef process fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef agent fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef action fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef external fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    
+    class event_handler,get_channel,get_history,get_context process
+    class search_agent,message_agent,assistant_agent agent
+    class reply,tools,react,store action
+    class slack,openai,surrealdb,mcp_tools external
+```
+
 ### Core Components
 
 **🔌 Default Implementations:**
@@ -276,6 +356,14 @@ Triage-bot is built with a modular, trait-based architecture that makes it easy 
 - **SurrealDB Storage** - Stores channel configs, context, and message history  
 - **OpenAI Integration** - Powers AI responses and searches using latest models
 - **MCP Support** - Extends capabilities through external tool servers
+
+### Multi-Agent LLM Architecture
+
+The system employs a sophisticated multi-agent approach:
+
+1. **Search Agent** - Performs web searches using `gpt-4o` with low temperature (0.0) for factual accuracy
+2. **Message Search Agent** - Extracts keywords and searches channel history for relevant context
+3. **Assistant Agent** - Main conversational agent using `o3` model with tool calling capabilities
 
 ### Extensibility
 
