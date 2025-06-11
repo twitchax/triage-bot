@@ -20,7 +20,7 @@ Perfect for engineering teams, customer support, and any organization looking to
 ## Quick Start
 
 1. **Install triage-bot** (see [Installation](#installation) for platform-specific instructions)
-2. **Set up prerequisites** (Node.js 20+ for MCP support)
+2. **Set up prerequisites** (Node.js 20+ for MCP support, if you use `npx`)
 3. **Configure your environment** (OpenAI API key, Slack tokens, database)
 4. **Run the bot** and add it to your Slack channels
 
@@ -63,9 +63,9 @@ $ cargo install triage-bot
 
 ## Prerequisites
 
-**Node.js (Required for MCP Support)**
+**Node.js (Required for mainstream MCP Support)**
 
-Triage-bot requires Node.js (version 20 or later) to run Model Context Protocol (MCP) servers, which provide additional tools and capabilities to extend the bot's functionality.
+Triage-bot requires Node.js (version 20 or later) to run Model Context Protocol (MCP) servers that use `npx` (fairly standard at the moment), which provide additional tools and capabilities to extend the bot's functionality.  If you use remote MCPs, or don't use `npx`, you can skip this requirement.
 
 **Installation by Platform:**
 - **Ubuntu/Debian**: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`
@@ -228,7 +228,7 @@ These follow the [OpenTelemetry specification](https://opentelemetry.io/docs/spe
 
 ## Getting Started
 
-1. **Install Node.js** (version 20+) - Required for MCP server support
+1. **Install Node.js** (version 20+) - Required for `npx` MCP server support
 2. **Install triage-bot** using your preferred method ([see Installation](#installation))
 3. **Set up your services:**
    - Create an OpenAI API account and get your API key
