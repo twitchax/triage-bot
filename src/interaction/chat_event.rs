@@ -97,73 +97,76 @@ where
         let chat = chat.clone();
         let mcp = mcp.clone();
 
-        Box::pin(async move {
-            let mut messages = Vec::new();
+        Box::pin(
+            async move {
+                let mut messages = Vec::new();
 
-            for response in responses {
-                match response {
-                    AssistantResponse::NoAction => warn!("No action taken."),
-                    AssistantResponse::UpdateChannelDirective { call_id, message } => {
-                        info!("Updating channel directive ...");
+                for response in responses {
+                    match response {
+                        AssistantResponse::NoAction => warn!("No action taken."),
+                        AssistantResponse::UpdateChannelDirective { call_id, message } => {
+                            info!("Updating channel directive ...");
 
-                        let directive = L::new(serde_json::to_value(&event)?, message);
+                            let directive = L::new(serde_json::to_value(&event)?, message);
 
-                        db.update_channel_directive(&channel_id, &directive).await?;
+                            db.update_channel_directive(&channel_id, &directive).await?;
 
-                        // Send the result back to the LLM.
-                        messages.push(json!({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": "Channel directive updated successfully.",
-                        }));
-                    }
-                    AssistantResponse::UpdateContext { call_id, message } => {
-                        info!("Updating context ...");
+                            // Send the result back to the LLM.
+                            messages.push(json!({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": "Channel directive updated successfully.",
+                            }));
+                        }
+                        AssistantResponse::UpdateContext { call_id, message } => {
+                            info!("Updating context ...");
 
-                        let context = L::new(serde_json::to_value(&event)?, message);
+                            let context = L::new(serde_json::to_value(&event)?, message);
 
-                        db.add_channel_context(&channel_id, &context).await?;
+                            db.add_channel_context(&channel_id, &context).await?;
 
-                        // Send the result back to the LLM.
-                        messages.push(json!({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": "Context updated successfully.",
-                        }));
-                    }
-                    AssistantResponse::McpTool { call_id, name, arguments } => {
-                        info!("Calling MCP tool: {} ...", name);
+                            // Send the result back to the LLM.
+                            messages.push(json!({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": "Context updated successfully.",
+                            }));
+                        }
+                        AssistantResponse::McpTool { call_id, name, arguments } => {
+                            info!("Calling MCP tool: {} ...", name);
 
-                        // Call the MCP tool with the provided arguments.
-                        let mcp_result = mcp.call_tool(&name, &arguments).await?;
+                            // Call the MCP tool with the provided arguments.
+                            let mcp_result = mcp.call_tool(&name, &arguments).await?;
 
-                        // Send the result back to the LLM.
-                        messages.push(json!({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": mcp_result,
-                        }));
-                    }
-                    AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
-                        info!("Replying to thread ...");
+                            // Send the result back to the LLM.
+                            messages.push(json!({
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": mcp_result,
+                            }));
+                        }
+                        AssistantResponse::ReplyToThread { thread_ts, classification, message } => {
+                            info!("Replying to thread ...");
 
-                        // Set the emoji.
-                        let emoji = match classification {
-                            AssistantClassification::Question => "question",
-                            AssistantClassification::Feature => "bulb",
-                            AssistantClassification::Bug => "bug",
-                            AssistantClassification::Incident => "warning",
-                            AssistantClassification::Other => "grey_question",
-                        };
+                            // Set the emoji.
+                            let emoji = match classification {
+                                AssistantClassification::Question => "question",
+                                AssistantClassification::Feature => "bulb",
+                                AssistantClassification::Bug => "bug",
+                                AssistantClassification::Incident => "warning",
+                                AssistantClassification::Other => "grey_question",
+                            };
 
-                        let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
-                        chat.send_message(&channel_id, &thread_ts, &message).await?;
+                            let _ = chat.react_to_message(&channel_id, &thread_ts, emoji).await;
+                            chat.send_message(&channel_id, &thread_ts, &message).await?;
+                        }
                     }
                 }
-            }
 
-            Ok(messages)
-        }) as Pin<Box<dyn Future<Output = Res<Vec<Value>>> + Send>>
+                Ok(messages)
+            }
+            .instrument(Span::current()),
+        ) as Pin<Box<dyn Future<Output = Res<Vec<Value>>> + Send>>
     });
 
     // Call the assistant agent with all of the context.
