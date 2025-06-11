@@ -105,8 +105,8 @@ Return *only* one JSON object *without any surrounding code fences*.
 
 * Slack / Discord markdown only - *no code fences around the JSON*, but you may use back-tick blocks *inside* `message` if helpful.
   * Use `*bold*` for emphasis, `_italics_` for italics, `~strikethrough~` for strikethrough, back ticks for code, `>` for block quotes, `*` for lists, and `<https://example.com|link text>` for links.
-* Wrap user IDs like `<@U12345678>` so the tag is linked.
-* Italics, bold, and links encouraged; avoid tables.
+* For text-based IDs, you can mention with `@some-oncall`, but wrap user IDs like `<@U12345678>` so the tag is linked.
+* Italics, bold, and links encouraged; avoid tables.  Links _highly_ encouraged.
 
 ---
 
@@ -179,6 +179,7 @@ pub const SEARCH_AGENT_SYSTEM_DIRECTIVE: &str = r#####"
 > * Include the main points, headlines, and any important links or context you find.
 > * Do *not* write an answer or summary yourself—*just collect the search results, snippets, and source URLs*.
 > * Return the raw search findings in a clear format so another system can use them to answer the original question.
+> * Provide copious links to the sources you find so that the assistant can verify and use them later.
 "#####;
 
 /// A directive for the message search agent that extracts search terms

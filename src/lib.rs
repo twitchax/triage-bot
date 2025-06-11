@@ -10,6 +10,7 @@
 //! and OpenAI for intelligent responses. The architecture is built around
 //! extensible traits that allow for different implementations of each service.
 
+#[deny(missing_docs)]
 pub mod base;
 pub mod interaction;
 pub mod runtime;

@@ -18,10 +18,15 @@ pub type Void = Res<()>;
 /// This is used to determine the type of action to take based on the assistant's response.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AssistantClassification {
+    /// Bug classification indicates that the issue is a bug in the system.
     Bug,
+    /// Feature classification indicates that the issue is a feature request.
     Feature,
+    /// Question classification indicates that the issue is a question that needs to be answered.
     Question,
+    /// Incident classification indicates that the issue is an incident that needs to be handled.
     Incident,
+    /// Other classification indicates that the issue does not fit into any of the above categories.
     Other,
 }
 
@@ -33,27 +38,42 @@ pub enum AssistantClassification {
 #[serde(tag = "type")]
 pub enum AssistantResponse {
     // Responses.
+    /// Indicates that the assistant will take no action.
     NoAction,
+    /// A direct reply to a thread in Slack.
     ReplyToThread {
+        /// The timestamp of the thread to reply to.
         thread_ts: String,
+        /// The classification of the response, used to determine the type of action.
         classification: AssistantClassification,
+        /// The message to send in the thread.
         message: String,
     },
 
     // Built-in Tool calls.
+    /// Update the channel directive with a message.
     UpdateChannelDirective {
+        /// The unique identifier for the call, used to track the response.
         call_id: String,
+        /// The message that represents what the bot "thinks about" the directive update.
         message: String,
     },
+    /// Update the channel context with a message.
     UpdateContext {
+        /// The unique identifier for the call, used to track the response.
         call_id: String,
+        /// The message that represents what the bot "thinks about" the context update.
         message: String,
     },
 
     // MCP Tool calls.
+    /// A call to an MCP tool with a specific name and arguments.
     McpTool {
+        /// The unique identifier for the call, used to track the response.
         call_id: String,
+        /// The name of the MCP tool to call.
         name: String,
+        /// The arguments to pass to the MCP tool.
         arguments: Value,
     },
 }
@@ -102,10 +122,15 @@ pub struct AssistantTool {
 /// the user's message and provide relevant search results.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct WebSearchContext {
+    /// The user's message that will be used to search for relevant information.
     pub user_message: String,
+    /// The bot's user ID, used to identify the bot in the context of the search.
     pub bot_user_id: String,
+    /// The channel ID where the search is being performed.
     pub channel_id: String,
+    /// The context of the channel, which may include settings or metadata relevant to the search.
     pub channel_context: String,
+    /// The context of the thread, which may include previous messages or relevant information.
     pub thread_context: String,
 }
 
@@ -115,10 +140,15 @@ pub struct WebSearchContext {
 /// identify keywords from the user's message to find relevant channel history.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct MessageSearchContext {
+    /// The user's message that will be used to search for relevant information.
     pub user_message: String,
+    /// The bot's user ID, used to identify the bot in the context of the search.
     pub bot_user_id: String,
+    /// The channel ID where the search is being performed.
     pub channel_id: String,
+    /// The context of the channel, which may include settings or metadata relevant to the search.
     pub channel_context: String,
+    /// The context of the thread, which may include previous messages or relevant information.
     pub thread_context: String,
 }
 
@@ -129,14 +159,24 @@ pub struct MessageSearchContext {
 /// an appropriate response.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct AssistantContext {
+    /// The user's message that will be processed by the assistant.
     pub user_message: String,
+    /// The bot's user ID, used to identify the bot in the context of the assistant.
     pub bot_user_id: String,
+    /// The channel ID where the assistant is operating.
     pub channel_id: String,
+    /// The timestamp of the thread where the assistant is responding.
     pub thread_ts: String,
+    /// The context of the channel, which may include settings or metadata relevant to the assistant's operation.
     pub channel_directive: String,
+    /// The context of the thread, which may include previous messages or relevant information.
     pub channel_context: String,
+    /// The context of the thread, which may include previous messages or relevant information.
     pub thread_context: String,
+    /// The web search context, which may include search results or relevant information gathered from the web.
     pub web_search_context: String,
+    /// The message search context, which may include keywords or relevant information gathered from the channel history.
     pub message_search_context: String,
+    /// A list of tools that the assistant can use to perform actions or gather information.
     pub tools: Vec<AssistantTool>,
 }

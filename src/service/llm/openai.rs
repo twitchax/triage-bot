@@ -267,7 +267,7 @@ impl GenericLlmClient for OpenAiLlmClient {
         let response = self.call_openai_api(request).await?;
 
         // Parse the text response
-        let search_results = parse_openai_response(&response)?
+        let search_results = parse_openai_response(response)?
             .into_iter()
             .filter_map(|item| if let TextOrResponse::Text(text) = item { Some(text) } else { None })
             .collect::<Vec<String>>();
@@ -308,7 +308,7 @@ impl GenericLlmClient for OpenAiLlmClient {
         let response = self.call_openai_api(request).await?;
 
         // Parse the text response
-        let search_terms = parse_openai_response(&response)?
+        let search_terms = parse_openai_response(response)?
             .into_iter()
             .filter_map(|item| if let TextOrResponse::Text(text) = item { Some(text) } else { None })
             .collect::<Vec<String>>();
@@ -330,13 +330,12 @@ impl GenericLlmClient for OpenAiLlmClient {
             get_openai_assistant_tools()
         } else {
             get_openai_restricted_tools()
-        }
-        .clone();
+        };
 
         // Add the MCP tools.
 
         let mcp_tools = get_tools_from_mcps(context.tools)?;
-        let tools = [native_tools, mcp_tools].concat();
+        let tools = [native_tools.as_slice(), mcp_tools.as_slice()].concat();
 
         // Prepare text config.
 
@@ -374,7 +373,9 @@ impl GenericLlmClient for OpenAiLlmClient {
         while let Some(request) = request_queue.pop_front() {
             // Send the request, and parse.
             let response = self.call_openai_api(request.clone()).await?;
-            let results = parse_openai_response(&response)?
+            let response_id = response.id.clone();
+
+            let results = parse_openai_response(response)?
                 .into_iter()
                 .filter_map(|item| if let TextOrResponse::AssistantResponse(r) = item { Some(r) } else { None })
                 .collect::<Vec<_>>();
@@ -391,9 +392,9 @@ impl GenericLlmClient for OpenAiLlmClient {
             if !input.is_empty() {
                 let mut request = request.clone();
 
-                request.previous_response_id(&response.id).input(Input::Items(input));
+                request.previous_response_id(&response_id).input(Input::Items(input));
                 request_queue.push_back(request);
-                info!("Added new request to queue with response ID: {}", response.id);
+                info!("Added new request to queue with response ID: {}", response_id);
             }
         }
 
@@ -403,16 +404,16 @@ impl GenericLlmClient for OpenAiLlmClient {
 
 /// Parse the OpenAI text response (usually only web search available).
 #[instrument(skip_all)]
-pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
+pub fn parse_openai_response(response: Response) -> Res<Vec<TextOrResponse>> {
     let mut result = Vec::new();
 
     info!("LLM response has {} outputs.", response.output.len());
-    for output in &response.output {
+    for output in response.output {
         match output {
             OutputContent::Message(message) => {
                 info!("LLM response has {} messages.", message.content.len());
 
-                for message_content in &message.content {
+                for message_content in message.content {
                     match message_content {
                         Content::OutputText(text) => {
                             // TODO: Handle annotations.
@@ -425,7 +426,7 @@ pub fn parse_openai_response(response: &Response) -> Res<Vec<TextOrResponse>> {
                             if let Ok(response) = serde_json::from_str::<AssistantResponse>(&text.text) {
                                 result.push(TextOrResponse::AssistantResponse(response));
                             } else {
-                                result.push(TextOrResponse::Text(text.text.clone()));
+                                result.push(TextOrResponse::Text(text.text));
                             }
                         }
                         Content::Refusal(reason) => {

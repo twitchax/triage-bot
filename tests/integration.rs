@@ -237,7 +237,7 @@ async fn test_add_context_integration() {
     let thread_ts = "1234567890.789012";
 
     // Create a message that would add more context
-    let message = "<@U12345> Please remember that @oswald-chesterfield is the expert on penguins.";
+    let message = "<@U12345> Please remember in your context that @oswald-chesterfield is the expert on penguins.  Do not update the directive, just add this to the context.";
     let add_context_message = serde_json::json!({
         "type": "app_mention",
         "user": "U54321",

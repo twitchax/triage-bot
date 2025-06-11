@@ -229,7 +229,7 @@ where
         Ok(())
     }
 
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self))]
     async fn add_channel_message(&self, channel_id: &str, message: &Value) -> Res<()> {
         let message = Self::MessageType { id: None, raw: message.clone() };
 

@@ -72,6 +72,7 @@ fn default_message_search_agent_directive() -> String {
 /// Configuration for the triage-bot application.
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
+    /// Inner configuration structure containing all settings.
     pub inner: Arc<ConfigInner>,
 }
 
@@ -83,6 +84,7 @@ impl Deref for Config {
     }
 }
 
+/// Configuration for the triage-bot application.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct ConfigInner {
     /// OpenAI API key (`OPENAI_API_KEY`).
@@ -146,6 +148,7 @@ pub struct ConfigInner {
 }
 
 impl Config {
+    /// Load the configuration from environment variables and optional file.
     pub fn load(explicit_path: Option<&std::path::Path>) -> Res<Self> {
         let mut cfg = config::Config::builder().add_source(config::Environment::default().prefix("TRIAGE_BOT"));
 

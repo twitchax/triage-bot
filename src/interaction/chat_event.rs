@@ -37,7 +37,7 @@ where
 
             // Log any errors.
             if let Err(err) = &result {
-                error!("Error while handling: {}", err);
+                error!("Error while handling: {}\n\n{}", err, err.backtrace());
             }
         }
         .instrument(Span::current()),
