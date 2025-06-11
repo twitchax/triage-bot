@@ -20,7 +20,7 @@ Perfect for engineering teams, customer support, and any organization looking to
 ## Quick Start
 
 1. **Install triage-bot** (see [Installation](#installation) for platform-specific instructions)
-2. **Set up prerequisites** (Node.js 20+ for MCP support, if you use `npx`)
+2. [OPTIONAL] **Set up prerequisites** (Node.js 20+ for MCP support, if you use `npx`)
 3. **Configure your environment** (OpenAI API key, Slack tokens, database)
 4. **Run the bot** and add it to your Slack channels
 
@@ -53,9 +53,7 @@ $ unzip triage-bot_x86_64-unknown-linux-gnu.zip -d /usr/local/bin
 $ chmod a+x /usr/local/bin/triage-bot
 ```
 
-### From Source
-
-**Using Cargo:**
+**Cargo:**
 
 ```bash
 $ cargo install triage-bot
@@ -63,18 +61,16 @@ $ cargo install triage-bot
 
 ## Prerequisites
 
-**Node.js (Required for mainstream MCP Support)**
+[OPTIONAL] **Node.js (Required for mainstream MCP Support)**
 
 Triage-bot requires Node.js (version 20 or later) to run Model Context Protocol (MCP) servers that use `npx` (fairly standard at the moment), which provide additional tools and capabilities to extend the bot's functionality.  If you use remote MCPs, or don't use `npx`, you can skip this requirement.
-
-**Installation by Platform:**
-- **Ubuntu/Debian**: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`
-- **macOS**: `brew install node` (requires [Homebrew](https://brew.sh/))
-- **Windows**: Download from [nodejs.org](https://nodejs.org/)
 
 **Other Requirements:**
 - OpenAI API account with API key
 - Slack workspace with bot permissions
+  - Socket mode enabled
+  - Bot user OAuth token
+  - `chat:write`, `channels:read`, and other necessary scopes
 - SurrealDB instance (for storing configurations and message history)
 
 ## How It Works
@@ -91,6 +87,7 @@ Triage-bot seamlessly integrates with your Slack workspace to provide intelligen
    - 🔍 Searches past discussions for relevant context
    - 💡 Suggests potential solutions when confident
    - 📝 Maintains conversation history for future reference
+   - 🛠️ Invokes relevant MCP tools
 
 ### Examples in Action
 
@@ -175,19 +172,18 @@ Customize bot behavior with these advanced options:
 | `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE`         | Custom search agent behavior             | Built-in |
 | `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE` | Custom message search behavior           | Built-in |
 
-### Understanding Reasoning Models
+### Observability (Optional)
 
-**📖 What are Reasoning Models?**
-Reasoning effort parameters only apply to OpenAI's o-series models (like `o1`, `o3`) which are specifically designed for complex reasoning tasks.
+Enable monitoring and tracing with OpenTelemetry:
 
-**⚙️ Reasoning Effort Levels:**
-- `low` - Faster responses with basic reasoning
-- `medium` - Balanced performance and reasoning depth (recommended)
-- `high` - Deep reasoning at the cost of response time
+| Environment Variable          | Description                          | Example                    |
+| ----------------------------- | ------------------------------------ | -------------------------- |
+| `OTEL_SERVICE_NAME`           | Service name for telemetry           | `triage-bot`               |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL for telemetry data | `http://localhost:4317`    |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Export protocol (grpc/http)          | `grpc`                     |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | Headers for OTLP requests            | `authorization=Bearer ...` |
 
-**🔧 Model Behavior:**
-- **O-series models**: Use reasoning effort parameters for computational depth
-- **GPT-series models**: Use temperature parameters for response creativity
+These follow the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and work with platforms like Jaeger, Zipkin, or cloud tracing services.
 
 ### Configuration File Option
 
@@ -214,17 +210,19 @@ openai_assistant_agent_reasoning_effort = "high"
 
 **💡 Priority:** Environment variables override config file values.
 
-### Observability (Optional)
+### Understanding Reasoning Models
 
-Enable monitoring and tracing with OpenTelemetry:
+**📖 What are Reasoning Models?**
+Reasoning effort parameters only apply to OpenAI's o-series models (like `o1`, `o3`) which are specifically designed for complex reasoning tasks.
 
-| Environment Variable          | Description                          | Example                    |
-| ----------------------------- | ------------------------------------ | -------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL for telemetry data | `http://localhost:4317`    |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | Export protocol (grpc/http)          | `grpc`                     |
-| `OTEL_EXPORTER_OTLP_HEADERS`  | Headers for OTLP requests            | `authorization=Bearer ...` |
+**⚙️ Reasoning Effort Levels:**
+- `low` - Faster responses with basic reasoning
+- `medium` - Balanced performance and reasoning depth (recommended)
+- `high` - Deep reasoning at the cost of response time
 
-These follow the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and work with platforms like Jaeger, Zipkin, or cloud tracing services.
+**🔧 Model Behavior:**
+- **O-series models**: Use reasoning effort parameters for computational depth
+- **GPT-series models**: Use temperature parameters for response creativity
 
 ## Getting Started
 
@@ -264,7 +262,7 @@ These follow the [OpenTelemetry specification](https://opentelemetry.io/docs/spe
 
 Enable verbose logging for troubleshooting:
 ```bash
-RUST_LOG=debug triage-bot
+triage-bot -v
 ```
 
 ## Architecture and Extensibility
@@ -294,11 +292,11 @@ To add support for new services, implement the relevant trait:
 ```rust
 use triage_bot::base::types::GenericChatClient;
 
-struct MyCustomChatClient {
+struct DiscordChatClient {
     // your implementation
 }
 
-impl GenericChatClient for MyCustomChatClient {
+impl GenericChatClient for DiscordChatClient {
     // implement required methods
 }
 ```
@@ -309,8 +307,10 @@ This modular design ensures triage-bot can adapt to your existing infrastructure
 
 ### Running Tests
 
+The tests have e2e integration tests that require an OpenAI API key.  The database is run in memory mode, and the Slack client is usually mocked.
+
 ```bash
-$ cargo nextest run
+$ ./utilities/run-tests.sh
 ```
 
 ### Contributing

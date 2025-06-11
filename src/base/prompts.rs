@@ -104,6 +104,7 @@ Return *only* one JSON object *without any surrounding code fences*.
 ## Formatting & Tagging
 
 * Slack / Discord markdown only - *no code fences around the JSON*, but you may use back-tick blocks *inside* `message` if helpful.
+  * Use `*bold*` for emphasis, `_italics_` for italics, `~strikethrough~` for strikethrough, back ticks for code, `>` for block quotes, `*` for lists, and `<https://example.com|link text>` for links.
 * Wrap user IDs like `<@U12345678>` so the tag is linked.
 * Italics, bold, and links encouraged; avoid tables.
 
