@@ -7,18 +7,37 @@
 
 # triage-bot
 
-An OpenAI-powered triage bot for a slack support channel designed to tag oncalls, prioritize issues, suggest solutions, and streamline communication.
+An intelligent AI-powered triage bot that transforms your Slack support channels into efficient, automated help desks. Built with OpenAI integration, triage-bot automatically:
 
-## Install
+- 🏷️ **Tags the right people** - Identifies and notifies relevant on-call personnel
+- 📊 **Classifies issues** - Categorizes problems as bugs, features, questions, or incidents  
+- 🔍 **Provides context** - Searches past discussions and suggests solutions
+- 🧠 **Learns continuously** - Remembers team knowledge and improves over time
+- 🔧 **Extends capabilities** - Integrates with external tools via Model Context Protocol (MCP)
 
-Windows:
+Perfect for engineering teams, customer support, and any organization looking to streamline their Slack-based support workflow.
+
+## Quick Start
+
+1. **Install triage-bot** (see [Installation](#installation) for platform-specific instructions)
+2. **Set up prerequisites** (Node.js 20+ for MCP support)
+3. **Configure your environment** (OpenAI API key, Slack tokens, database)
+4. **Run the bot** and add it to your Slack channels
+
+See the [Configuration](#configuration) section for detailed setup instructions.
+
+## Installation
+
+### Binary Installation
+
+**Windows:**
 
 ```powershell
 $ iwr https://github.com/twitchax/triage-bot/releases/latest/download/triage-bot_x86_64-pc-windows-gnu.zip
 $ Expand-Archive triage-bot_x86_64-pc-windows-gnu.zip -DestinationPath C:\Users\%USERNAME%\AppData\Local\Programs\triage-bot
 ```
 
-Mac OS (Apple Silicon):
+**macOS (Apple Silicon):**
 
 ```bash
 $ curl -LO https://github.com/twitchax/triage-bot/releases/latest/download/triage-bot_aarch64-apple-darwin.zip
@@ -26,7 +45,7 @@ $ unzip triage-bot_aarch64-apple-darwin.zip -d /usr/local/bin
 $ chmod a+x /usr/local/bin/triage-bot
 ```
 
-Linux:
+**Linux:**
 
 ```bash
 $ curl -LO https://github.com/twitchax/triage-bot/releases/latest/download/triage-bot_x86_64-unknown-linux-gnu.zip
@@ -34,7 +53,9 @@ $ unzip triage-bot_x86_64-unknown-linux-gnu.zip -d /usr/local/bin
 $ chmod a+x /usr/local/bin/triage-bot
 ```
 
-Cargo:
+### From Source
+
+**Using Cargo:**
 
 ```bash
 $ cargo install triage-bot
@@ -42,159 +63,261 @@ $ cargo install triage-bot
 
 ## Prerequisites
 
-Triage-bot requires Node.js (version 20 or later) for MCP (Model Context Protocol) server support. Node.js and `npx` are used to run MCP servers that provide additional tools and capabilities to the bot.
+**Node.js (Required for MCP Support)**
 
-Install Node.js:
+Triage-bot requires Node.js (version 20 or later) to run Model Context Protocol (MCP) servers, which provide additional tools and capabilities to extend the bot's functionality.
 
+**Installation by Platform:**
 - **Ubuntu/Debian**: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs`
-- **macOS**: Use [Homebrew](https://brew.sh/): `brew install node`
+- **macOS**: `brew install node` (requires [Homebrew](https://brew.sh/))
 - **Windows**: Download from [nodejs.org](https://nodejs.org/)
 
-## Usage
+**Other Requirements:**
+- OpenAI API account with API key
+- Slack workspace with bot permissions
+- SurrealDB instance (for storing configurations and message history)
 
-Triage-bot monitors your Slack support channels and automatically assists with user support requests. It integrates with your existing Slack workspace and requires minimal setup to get started.
+## How It Works
+
+Triage-bot seamlessly integrates with your Slack workspace to provide intelligent support automation with minimal setup required.
 
 ### Basic Workflow
 
-1. **User posts a message** in a Slack channel where triage-bot is active.
-2. **Triage-bot analyzes the message** using LLMs to determine the nature and urgency.
-3. **Bot takes appropriate actions**:
-   - Tags relevant on-call personnel.
-   - Classifies the issue (Bug, Feature, Question, Incident, Other).
-   - Provides helpful context from past discussions or web searches.
-   - Suggests potential solutions when confident.
+1. **Message Detection** - Bot monitors configured Slack channels for new messages
+2. **AI Analysis** - Uses OpenAI models to understand the message context and urgency
+3. **Intelligent Response** - Takes appropriate actions based on the analysis:
+   - 🏷️ Tags relevant on-call personnel
+   - 📂 Classifies issues (Bug, Feature, Question, Incident, Other)
+   - 🔍 Searches past discussions for relevant context
+   - 💡 Suggests potential solutions when confident
+   - 📝 Maintains conversation history for future reference
 
-### How It Works in Practice
+### Examples in Action
 
-Here are some examples of how triage-bot operates in real Slack channels:
+Here are real examples of how triage-bot operates in Slack channels:
 
-#### Basic Question Handling
+#### 💬 Basic Question Handling
 ![Basic Question](assets/basic_question.png)
 
 The bot responds to straightforward questions with helpful information and context, automatically analyzing the message to provide relevant assistance.
 
-#### Prime Directive and Channel Guidelines
+#### 🎯 Prime Directive and Channel Guidelines
 ![Prime Directive](assets/prime_directive.png)
 
 Triage-bot follows a configurable "prime directive" that guides its behavior and priorities within each channel, ensuring consistent and appropriate responses.
 
-#### Adding Context and Memory
+#### 🧠 Adding Context and Memory
 ![Add Context](assets/add_context.png)
 
 Users can teach the bot about their environment by adding context. The bot remembers this information and uses it to provide more accurate assistance in future interactions.
 
-#### Advanced Tool Support with MCP
+#### 🔧 Advanced Tool Support with MCP
 ![MCP Support](assets/mcp_support.png)
 
-The bot integrates with Model Context Protocol (MCP) servers to access additional tools and capabilities, extending its functionality beyond basic chat responses (i.e., deepwiki in this example).
+The bot integrates with Model Context Protocol (MCP) servers to access additional tools and capabilities, extending its functionality beyond basic chat responses (e.g., deepwiki integration shown here).
 
-#### Detailed Execution Tracing
+#### 🔍 Detailed Execution Tracing
 ![Typical Trace](assets/typical_trace.png)
 
-For transparency and debugging, triage-bot provides detailed execution traces showing how it processes messages and makes decisions.  A typical trace may look like this, with "back and forth" between the bot and the LLM, showing how it arrives at a response.
+For transparency and debugging, triage-bot provides detailed execution traces showing how it processes messages and makes decisions. A typical trace shows the "back and forth" between the bot and the LLM, revealing how it arrives at responses.
 
-### Supported Commands
+### User Commands
 
-Users can interact directly with triage-bot by @-mentioning it:
+Interact with triage-bot using these commands:
 
-- **Help requests**: `@triage-bot why is my build failing?`
-- **Context updates**: `@triage-bot please remember that FooService owns bar-api`
-- **Update channel directive**: `@triage-bot reset the channel directive to prioritize security incidents`
+**Direct Mentions:**
+- `@triage-bot why is my build failing?` - Ask for help with specific issues
+- `@triage-bot please remember that FooService owns bar-api` - Add context and knowledge
+- `@triage-bot reset the channel directive to prioritize security incidents` - Update channel behavior
 
-Note that top-level comments that don't tag the bot will also be responded to.
+**💡 Pro Tip:** The bot also responds to top-level comments that don't mention it directly, making conversations feel more natural.
 
-### Configuration
+## Configuration
 
-Configuration is handled through environment variables or a config file (`.hidden/config.toml`). The bot supports the following configuration options:
+Triage-bot can be configured using environment variables or a configuration file. Environment variables take precedence over config file values.
 
-| Environment Variable                                 | Description                                               | Default         |
-| ---------------------------------------------------- | --------------------------------------------------------- | --------------- |
-| `TRIAGE_BOT_OPENAI_API_KEY`                          | OpenAI API key                                            | (required)      |
-| `TRIAGE_BOT_SLACK_APP_TOKEN`                         | Slack app token                                           | (required)      |
-| `TRIAGE_BOT_SLACK_BOT_TOKEN`                         | Slack bot token                                           | (required)      |
-| `TRIAGE_BOT_SLACK_SIGNING_SECRET`                    | Slack signing secret                                      | (required)      |
-| `TRIAGE_BOT_DB_ENDPOINT`                             | SurrealDB endpoint URL                                    | (required)      |
-| `TRIAGE_BOT_DB_USERNAME`                             | SurrealDB username                                        | (required)      |
-| `TRIAGE_BOT_DB_PASSWORD`                             | SurrealDB password                                        | (required)      |
-| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_MODEL`               | OpenAI model for search agent                             | `gpt-4.1`       |
-| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL`            | OpenAI model for assistant agent                          | `o3`            |
-| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE`         | Sampling temperature for search agent                     | `0.0`           |
-| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE`      | Sampling temperature for assistant agent                  | `0.7`           |
-| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_REASONING_EFFORT`    | Reasoning effort for search agent (low/medium/high)       | `medium`        |
-| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_REASONING_EFFORT` | Reasoning effort for assistant agent (low/medium/high)    | `medium`        |
-| `TRIAGE_BOT_OPENAI_MAX_TOKENS`                       | Maximum output tokens                                     | `16384`         |
-| `TRIAGE_BOT_SYSTEM_DIRECTIVE`                        | Custom system directive for the assistant agent           | Default in code |
-| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE`              | Custom mention addendum directive for the assistant agent | Default in code |
-| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE`                  | Custom search agent directive                             | Default in code |
-| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE`          | Custom message search agent directive                     | Default in code |
+### Required Configuration
 
-**Note on Reasoning Effort**: The reasoning effort parameters (`TRIAGE_BOT_OPENAI_SEARCH_AGENT_REASONING_EFFORT` and `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_REASONING_EFFORT`) only apply when using OpenAI's reasoning models (o-series models like `o1`, `o3`, etc.). These parameters control how much computational effort the model puts into reasoning through problems:
+These settings are required for basic operation:
 
-- `low`: Faster responses with less reasoning depth
-- `medium`: Balanced approach (default)  
-- `high`: More thorough reasoning at the cost of response time
+| Environment Variable              | Description                       | Example                 |
+| --------------------------------- | --------------------------------- | ----------------------- |
+| `TRIAGE_BOT_OPENAI_API_KEY`       | Your OpenAI API key               | `sk-...`                |
+| `TRIAGE_BOT_SLACK_APP_TOKEN`      | Slack app token (for socket mode) | `xapp-...`              |
+| `TRIAGE_BOT_SLACK_BOT_TOKEN`      | Slack bot user OAuth token        | `xoxb-...`              |
+| `TRIAGE_BOT_SLACK_SIGNING_SECRET` | Slack app signing secret          | `abc123...`             |
+| `TRIAGE_BOT_DB_ENDPOINT`          | SurrealDB connection URL          | `http://localhost:8000` |
+| `TRIAGE_BOT_DB_USERNAME`          | SurrealDB username                | `root`                  |
+| `TRIAGE_BOT_DB_PASSWORD`          | SurrealDB password                | `root`                  |
 
-For non-reasoning models (like `gpt-4`), the temperature parameters are used instead.
+### Model Configuration
 
-Each environment variable can also be specified in a `.hidden/config.toml` file:
+Fine-tune AI behavior with these optional settings:
+
+| Environment Variable                                 | Description                                     | Default   |
+| ---------------------------------------------------- | ----------------------------------------------- | --------- |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_MODEL`               | OpenAI model for search operations              | `gpt-4.1` |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_MODEL`            | OpenAI model for assistant responses            | `o3`      |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_TEMPERATURE`         | Creativity level for search agent (0.0-2.0)     | `0.0`     |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_TEMPERATURE`      | Creativity level for assistant agent (0.0-2.0)  | `0.7`     |
+| `TRIAGE_BOT_OPENAI_SEARCH_AGENT_REASONING_EFFORT`    | Reasoning depth for search (low/medium/high)    | `medium`  |
+| `TRIAGE_BOT_OPENAI_ASSISTANT_AGENT_REASONING_EFFORT` | Reasoning depth for assistant (low/medium/high) | `medium`  |
+| `TRIAGE_BOT_OPENAI_MAX_TOKENS`                       | Maximum response length                         | `16384`   |
+
+### Custom Directives
+
+Customize bot behavior with these advanced options:
+
+| Environment Variable                        | Description                              | Default  |
+| ------------------------------------------- | ---------------------------------------- | -------- |
+| `TRIAGE_BOT_SYSTEM_DIRECTIVE`               | Custom system prompt for assistant agent | Built-in |
+| `TRIAGE_BOT_MENTION_ADDENDUM_DIRECTIVE`     | Additional instructions for @-mentions   | Built-in |
+| `TRIAGE_BOT_SEARCH_AGENT_DIRECTIVE`         | Custom search agent behavior             | Built-in |
+| `TRIAGE_BOT_MESSAGE_SEARCH_AGENT_DIRECTIVE` | Custom message search behavior           | Built-in |
+
+### Understanding Reasoning Models
+
+**📖 What are Reasoning Models?**
+Reasoning effort parameters only apply to OpenAI's o-series models (like `o1`, `o3`) which are specifically designed for complex reasoning tasks.
+
+**⚙️ Reasoning Effort Levels:**
+- `low` - Faster responses with basic reasoning
+- `medium` - Balanced performance and reasoning depth (recommended)
+- `high` - Deep reasoning at the cost of response time
+
+**🔧 Model Behavior:**
+- **O-series models**: Use reasoning effort parameters for computational depth
+- **GPT-series models**: Use temperature parameters for response creativity
+
+### Configuration File Option
+
+You can also use a `.hidden/config.toml` file instead of environment variables:
 
 ```toml
-openai_api_key = "your-api-key"
-slack_app_token = "xapp-..."
-slack_bot_token = "xoxb-..."
-slack_signing_secret = "..."
+# Required settings
+openai_api_key = "sk-your-api-key-here"
+slack_app_token = "xapp-your-app-token"
+slack_bot_token = "xoxb-your-bot-token"
+slack_signing_secret = "your-signing-secret"
 db_endpoint = "http://localhost:8000"
 db_username = "root"
 db_password = "root"
 
-# Optional: Configure reasoning effort for o-series models
-openai_search_agent_reasoning_effort = "medium"     # low, medium, high
-openai_assistant_agent_reasoning_effort = "high"    # low, medium, high
+# Optional: Model configuration
+openai_search_agent_model = "gpt-4o"
+openai_assistant_agent_model = "o3"
+
+# Optional: Reasoning effort for o-series models
+openai_search_agent_reasoning_effort = "medium"
+openai_assistant_agent_reasoning_effort = "high"
 ```
 
-Environment variables take precedence over values in the config file.
+**💡 Priority:** Environment variables override config file values.
 
-### OpenTelemetry Configuration
+### Observability (Optional)
 
-Triage-bot also supports the standard OpenTelemetry environment variables for observability and tracing:
+Enable monitoring and tracing with OpenTelemetry:
 
-| Environment Variable          | Description                                 | Default |
-| ----------------------------- | ------------------------------------------- | ------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL for telemetry data        | None    |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | Protocol to use for OTLP export (grpc/http) | None    |
-| `OTEL_EXPORTER_OTLP_HEADERS`  | Headers to include with OTLP requests       | None    |
+| Environment Variable          | Description                          | Example                    |
+| ----------------------------- | ------------------------------------ | -------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL for telemetry data | `http://localhost:4317`    |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Export protocol (grpc/http)          | `grpc`                     |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | Headers for OTLP requests            | `authorization=Bearer ...` |
 
-These variables follow the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and enable integration with observability platforms like Jaeger, Zipkin, or cloud-based tracing services.
+These follow the [OpenTelemetry specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and work with platforms like Jaeger, Zipkin, or cloud tracing services.
+
+## Getting Started
+
+1. **Install Node.js** (version 20+) - Required for MCP server support
+2. **Install triage-bot** using your preferred method ([see Installation](#installation))
+3. **Set up your services:**
+   - Create an OpenAI API account and get your API key
+   - Set up a Slack app with bot permissions in your workspace
+   - Deploy a SurrealDB instance (local or cloud)
+4. **Configure environment variables** ([see Configuration](#configuration))
+5. **Run the bot:** `triage-bot`
+6. **Add the bot to your Slack channels** and start asking questions!
+
+## Troubleshooting
+
+### Common Issues
+
+**"Node.js not found" error:**
+- Ensure Node.js 20+ is installed and `node` is in your PATH
+- Verify with: `node --version`
+
+**"Database connection failed":**
+- Check that SurrealDB is running and accessible
+- Verify `TRIAGE_BOT_DB_ENDPOINT` points to the correct URL
+- Ensure database credentials are correct
+
+**"OpenAI API errors":**
+- Verify your API key is valid and has sufficient credits
+- Check that the specified models (e.g., `o3`, `gpt-4o`) are available to your account
+
+**"Slack connection issues":**
+- Ensure your Slack app has the correct permissions (chat:write, channels:read, etc.)
+- Verify socket mode is enabled in your Slack app settings
+- Check that tokens are correctly formatted (app token starts with `xapp-`, bot token with `xoxb-`)
+
+### Debug Mode
+
+Enable verbose logging for troubleshooting:
+```bash
+RUST_LOG=debug triage-bot
+```
 
 ## Architecture and Extensibility
 
-Triage-bot is designed with modularity and extensibility in mind, built around the following core components:
+## Architecture and Extensibility
 
-### Default Implementations
+Triage-bot is built with a modular, trait-based architecture that makes it easy to extend or replace components.
 
-1. **Slack Integration**: The default chat client implementation connects to Slack using socket mode.
+### Core Components
 
-2. **SurrealDB Storage**: The default database client uses SurrealDB to store channel configurations, context, and message history.
+**🔌 Default Implementations:**
+- **Slack Integration** - Socket mode connection for real-time messaging
+- **SurrealDB Storage** - Stores channel configs, context, and message history  
+- **OpenAI Integration** - Powers AI responses and searches using latest models
+- **MCP Support** - Extends capabilities through external tool servers
 
-3. **OpenAI Integration**: The LLM client uses OpenAI's API to generate responses and perform searches.
+### Extensibility
 
-### Extensibility Through Traits
+**🔧 Plugin Architecture:**
+The application uses Rust traits for clean interfaces:
 
-The application is structured around key traits that make it easy to extend or replace components:
+- `GenericChatClient` - Chat platform integration (Slack, Discord, Teams, etc.)
+- `GenericDbClient` - Database operations (SurrealDB, PostgreSQL, MongoDB, etc.) 
+- `GenericLlmClient` - LLM providers (OpenAI, Anthropic, local models, etc.)
 
-- `GenericChatClient`: Interface for chat platform integration with methods for message handling.
+**🛠️ Adding New Integrations:**
+To add support for new services, implement the relevant trait:
 
-- `GenericDbClient`: Interface for database operations, allowing alternative storage solutions.
+```rust
+use triage_bot::base::types::GenericChatClient;
 
-- `GenericLlmClient`: Interface for LLM providers with methods for generating different types of responses.
+struct MyCustomChatClient {
+    // your implementation
+}
 
-To implement your own service integrations, simply create a new struct that implements the appropriate trait.
+impl GenericChatClient for MyCustomChatClient {
+    // implement required methods
+}
+```
 
-## Testing
+This modular design ensures triage-bot can adapt to your existing infrastructure and tooling.
+
+## Development
+
+### Running Tests
 
 ```bash
 $ cargo nextest run
 ```
+
+### Contributing
+
+We welcome contributions! Please see the development guide in [DEVELOPMENT.md](DEVELOPMENT.md) for setup instructions and coding conventions.
 
 ## License
 
