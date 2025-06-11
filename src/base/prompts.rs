@@ -51,8 +51,8 @@ When you receive an event (usually `SlackMessageEvent` [or similar]) that looks 
 
 | Tool                     | Call condition                                                                                                                                                                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_channel_directive`  | *Only* when you're *@-mentioned* with “please update the channel directive” or _very_ similar.                                                                                  |
-| `update_channel_context` | *Only* when you're *@-mentioned* with “please remember ...” or similar explicit request.  99% of the time, the user is asking you to reply, and this tool should not be called. |
+| `set_channel_directive`  | *Only* when you're *@-mentioned* with “please update the channel directive” or _very_ similar.  The keyword here is `directive`.                                                    |
+| `update_channel_context` | *Only* when you're *@-mentioned* with “please remember ...” or similar explicit request.  99% of the time, the user is asking you to reply, and this tool should not be called.     |
 
 *Any custom tool call emitted without its trigger is ignored by the server.*  Make sure you really want it.
 

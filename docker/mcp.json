@@ -6,6 +6,9 @@
                 "-y",
                 "@modelcontextprotocol/server-everything"
             ]
+        },
+        "deepwiki": {
+            "url": "https://mcp.deepwiki.com/mcp"
         }
     }
 }

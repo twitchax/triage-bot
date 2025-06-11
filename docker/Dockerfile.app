@@ -1,5 +1,5 @@
 FROM rust:slim-bookworm AS linker
-RUN apt-get update && apt-get install -y mold clang lld && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y mold clang lld libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 
 FROM linker AS chef
