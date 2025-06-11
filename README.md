@@ -64,6 +64,35 @@ Triage-bot monitors your Slack support channels and automatically assists with u
    - Provides helpful context from past discussions or web searches.
    - Suggests potential solutions when confident.
 
+### How It Works in Practice
+
+Here are some examples of how triage-bot operates in real Slack channels:
+
+#### Basic Question Handling
+![Basic Question](assets/basic_question.png)
+
+The bot responds to straightforward questions with helpful information and context, automatically analyzing the message to provide relevant assistance.
+
+#### Prime Directive and Channel Guidelines
+![Prime Directive](assets/prime_directive.png)
+
+Triage-bot follows a configurable "prime directive" that guides its behavior and priorities within each channel, ensuring consistent and appropriate responses.
+
+#### Adding Context and Memory
+![Add Context](assets/add_context.png)
+
+Users can teach the bot about their environment by adding context. The bot remembers this information and uses it to provide more accurate assistance in future interactions.
+
+#### Advanced Tool Support with MCP
+![MCP Support](assets/mcp_support.png)
+
+The bot integrates with Model Context Protocol (MCP) servers to access additional tools and capabilities, extending its functionality beyond basic chat responses (i.e., deepwiki in this example).
+
+#### Detailed Execution Tracing
+![Typical Trace](assets/typical_trace.png)
+
+For transparency and debugging, triage-bot provides detailed execution traces showing how it processes messages and makes decisions.  A typical trace may look like this, with "back and forth" between the bot and the LLM, showing how it arrives at a response.
+
 ### Supported Commands
 
 Users can interact directly with triage-bot by @-mentioning it:
